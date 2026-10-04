@@ -1,0 +1,90 @@
+{
+  "template": "scum",
+  "title": "SCUM",
+  "description": "SCUM dedicated server (Steam app 3792580). Runs as a background process; restart warnings go through SCUM's own Notifications.json. Uses SCUM's default ports (7777 UDP, 7779 TCP, 27015 UDP) - change them in config.json if you need others.",
+  "fields": [
+    {"key": "id", "label": "Short id", "default": "scum", "help": "letters, numbers, - and _ (used in links and backup folders)"},
+    {"key": "name", "label": "Display name", "default": "SCUM"},
+    {"key": "install_dir", "label": "Install folder", "default": "C:\\GameServers\\SCUM", "help": "SteamCMD installs the server here (press Install on its card afterwards)"}
+  ],
+  "server": {
+    "id": "{id}",
+    "name": "{name}",
+    "type": "win_process",
+    "appid": 3792580,
+    "install_dir": "{install_dir}",
+    "steam_install_dir": "{install_dir}",
+    "manifest": "{install_dir}\\steamapps\\appmanifest_3792580.acf",
+    "exe": "SCUM\\Binaries\\Win64\\SCUMServer.exe",
+    "args": ["-log"],
+    "ports": [["udp", 7777], ["udp", 27015], ["tcp", 7779]],
+    "query": null,
+    "start_timeout": 600,
+    "stop_method": "terminate",
+    "firewall": "auto",
+    "backup": {"paths": ["SCUM\\Saved"], "exclude": ["Logs", "Crashes", "Temp"], "dest": "{backup_root}\\{id}"},
+    "config_files": [
+      "SCUM/Saved/Config/WindowsServer/*.ini",
+      "SCUM/Saved/Config/WindowsServer/*.json",
+      "SCUM/Saved/Config/WindowsServer/Quests/**/*.json",
+      "SCUM/Saved/Config/WindowsServer/Loot/**/*.json"
+    ],
+    "pre_start": [["remove_without_avx2", "SCUM\\Plugins\\Core\\SDSpeechTools"], ["scum_live"]],
+    "post_update": [["remove_without_avx2", "SCUM\\Plugins\\Core\\SDSpeechTools"]],
+    "announce": "scum_notifications",
+    "perf": {"kind": "scum_log", "log": "SCUM\\Saved\\Logs\\SCUM.log",
+             "settings": "SCUM\\Saved\\Config\\WindowsServer\\ServerSettings.ini"},
+    "health": {"min_fps_busy": 15},
+    "schedule": {"enabled": true, "every_hours": 6, "start": "00:00", "warn_minutes": 10},
+    "scum_feed": true,
+    "logs": {
+      "server (SCUM.log)": "{install_dir}\\SCUM\\Saved\\Logs\\SCUM.log",
+      "chat": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\chat_*.log",
+      "login": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\login_*.log",
+      "kill": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\kill_*.log",
+      "admin": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\admin_*.log",
+      "economy": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\economy_*.log",
+      "quests": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\quests_*.log",
+      "fame points": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\famepoints_*.log",
+      "violations": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\violations_*.log",
+      "gameplay": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\gameplay_*.log"
+    },
+    "events": [
+      {
+        "id": "blood_moon", "name": "Blood Moon", "enabled": false,
+        "weekday": 5, "start": "18:00", "hours": 12,
+        "ini": "SCUM\\Saved\\Config\\WindowsServer\\ServerSettings.ini",
+        "settings": {
+          "scum.EncounterHordeActivationChanceMultiplier": "2.000000",
+          "scum.EncounterHordeBaseCharacterAmountMultiplier": "1.200000",
+          "scum.EncounterHordeGroupBaseCharacterAmountMultiplier": "1.200000",
+          "scum.EncounterCharacterAINoiseResponseRadiusMultiplier": "2.000000",
+          "scum.PuppetHealthMultiplier": "1.200000",
+          "scum.FameGainMultiplier": "2.000000",
+          "scum.MessageOfTheDay": "Blood Moon until {end_day} {end} - hordes roam, fame x2. Stay quiet, stay together."
+        },
+        "notice_color": "220-40-40",
+        "notices": {
+          "before": "The Blood Moon rises at {start}. Hordes walk until {end_day} {end} - fame x2 for the brave.",
+          "during": "BLOOD MOON until {end_day} {end}: hordes roam and walkers hear further. Fame x2.",
+          "ending": "Dawn is coming. The Blood Moon sets at {end} with a server restart."
+        },
+        "discord": {
+          "soon": "\ud83e\ude78 **The Blood Moon rises in 1 hour** ({day} {start} until {end_day} {end}). Hordes roam, fame x2.",
+          "start": "\ud83e\ude78 **The Blood Moon has risen.** Hordes roam until {end_day} {end}. Fame x2.",
+          "end": "\ud83c\udf05 **Dawn.** The Blood Moon has set."
+        }
+      }
+    ],
+    "tips": {
+      "enabled": false, "every_minutes": 30, "offset_minute": 15, "color": "150-200-255",
+      "messages": [
+        "Puppets hunt by sound. A gunshot carries for a kilometer - a knife doesn't.",
+        "Every trader has quests. Finish enough in one tier and better-paying work unlocks.",
+        "Medicine is worth more than money. Carry bandages.",
+        "Restarts always come with a warning. Find a safe spot when it comes."
+      ]
+    },
+    "defaults": {"keep_online": true, "auto_update": true}
+  }
+}

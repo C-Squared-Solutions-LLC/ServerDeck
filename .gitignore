@@ -1,0 +1,14 @@
+# Your own setup - never commit these (paths, passwords, Discord webhook, stats)
+config.json
+config.json.bak-*
+state.json
+community.json
+*.bak*
+*.tmp
+*.serverdeck-tmp
+
+# Runtime output
+logs/
+backups/
+__pycache__/
+*.pyc

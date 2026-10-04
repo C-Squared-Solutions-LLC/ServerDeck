@@ -1,0 +1,14 @@
+{
+  "ui": {"host": "127.0.0.1", "port": 8787},
+  "steamcmd": "C:\\steamcmd\\steamcmd.exe",
+  "update_check_minutes": 30,
+  "system_health": {"max_ram_percent": 92, "max_cpu_percent": 95},
+  "backups": {"root": null, "keep_days": 14, "keep_min": 3, "include_other": false, "daily_time": "04:30"},
+  "community": {
+    "discord_username": "ServerDeck",
+    "announce_servers": [],
+    "leaderboard": {"weekday": 6, "time": "20:00"},
+    "leaderboard_title": "Weekly leaderboard"
+  },
+  "servers": []
+}

@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ServerDeck</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --text: #1d2330; --muted: #677085; --line: #e2e5ea;
+    --accent: #3b6fd8; --ok: #1f9d55; --warn: #c27c0e; --bad: #d64545; --idle: #8a93a6;
+    --chip: #eef1f5; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1a1f27; --text: #e6e9ef; --muted: #98a1b3; --line: #2a313c;
+      --accent: #6d96ff; --ok: #3ccf7e; --warn: #f0b04a; --bad: #ff6b6b; --idle: #7b8496;
+      --chip: #232a35; --shadow: none; color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  header.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between;
+               padding: 14px 24px; background: var(--panel); border-bottom: 1px solid var(--line);
+               position: sticky; top: 0; z-index: 5; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .2px; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 8px; }
+  .sys { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 13px; }
+  .sys b { color: var(--text); font-weight: 600; }
+  main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
+  .banner { background: color-mix(in srgb, var(--warn) 15%, var(--panel)); border: 1px solid var(--warn);
+            padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+          padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+  .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .head h2 { font-size: 17px; margin: 0; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--chip); color: var(--muted);
+           text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+  .state { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--idle); }
+  .s-running .dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+  .s-starting .dot, .s-stopping .dot, .s-busy .dot { background: var(--warn); animation: pulse 1.2s infinite; }
+  .s-crashed .dot { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; }
+  .stat { background: var(--chip); border-radius: 8px; padding: 7px 10px; }
+  .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  .stat .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap;
+             overflow: hidden; text-overflow: ellipsis; }
+  .stat .v small { font-weight: 400; color: var(--muted); font-size: 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; color: var(--muted); font-size: 13px; }
+  .row b { color: var(--text); font-weight: 600; }
+  .chip { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--chip); color: var(--muted);
+          font-variant-numeric: tabular-nums; }
+  .chip.up { color: var(--ok); } .chip.down { color: var(--bad); } .chip.warn { color: var(--warn); }
+  .upd { color: var(--warn); font-weight: 600; } .ok { color: var(--ok); }
+  .job { background: color-mix(in srgb, var(--warn) 12%, var(--panel)); border-radius: 8px; padding: 8px 10px;
+         font-size: 13px; }
+  .note { background: color-mix(in srgb, var(--bad) 10%, var(--panel)); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button, select, input[type=text], input[type=password] { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 7px;
+           border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.08); }
+  button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+  .toggles { display: flex; gap: 16px; margin-left: auto; flex-wrap: wrap; }
+  label.tg { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .events { margin-top: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+            box-shadow: var(--shadow); }
+  .events h3 { margin: 0; padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--line);
+               display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .events ol { list-style: none; margin: 0; padding: 6px 0; max-height: 340px; overflow: auto;
+               font: 12.5px/1.6 Consolas, "Cascadia Mono", monospace; }
+  .events li { padding: 1px 16px; display: flex; gap: 10px; }
+  .events li .t { color: var(--muted); flex: none; } .events li .sv { color: var(--accent); flex: none; min-width: 42px; }
+  .events li.warn { color: var(--warn); } .events li.error { color: var(--bad); }
+  dialog { width: min(1100px, 94vw); height: min(84vh, 900px); border: 1px solid var(--line); border-radius: 10px;
+           background: var(--panel); color: var(--text); padding: 0; }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dlg { display: flex; flex-direction: column; height: 100%; }
+  .dlg .bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between;
+              padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .dlg pre { flex: 1; margin: 0; padding: 12px 14px; overflow: auto; font: 12px/1.5 Consolas, "Cascadia Mono", monospace;
+             white-space: pre-wrap; word-break: break-all; }
+  .console { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+  .console input { flex: 1; min-width: 0; font-family: Consolas, "Cascadia Mono", monospace; }
+  .muted { color: var(--muted); }
+  dialog.small { width: min(480px, 94vw); height: auto; }
+  .form { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
+  .form h2 { margin: 0; font-size: 17px; }
+  .form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+  .form label.tg { flex-direction: row; color: var(--text); font-size: 14px; }
+  .form .inline { display: flex; gap: 10px; flex-wrap: wrap; }
+  .form .inline label { flex: 1; min-width: 120px; }
+  .form input[type=number], .form input[type=time] { font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 7px;
+           border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  .form p { margin: 0; font-size: 13px; }
+  .form .controls { justify-content: flex-end; }
+  .times { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 14px 0; border-bottom: 1px solid var(--line); }
+  .tabs button { border-radius: 7px 7px 0 0; border-bottom: none; padding: 6px 12px; font-size: 13px; }
+  .tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .logmeta { padding: 6px 14px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line);
+             font-family: Consolas, "Cascadia Mono", monospace; overflow-wrap: anywhere; }
+  .logbody { flex: 1; margin: 0; padding: 10px 14px; overflow: auto; font: 12px/1.5 Consolas, "Cascadia Mono", monospace;
+             white-space: pre-wrap; word-break: break-all; }
+  .logbody .ln { display: block; }
+  .logbody .err { color: var(--bad); }
+  .logbody .wrn { color: var(--warn); }
+  .logbody mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 2px; }
+  .logbody .cmd { color: var(--accent); font-weight: 600; }
+  #logFilter { width: 180px; }
+  .chip.link { cursor: pointer; }
+  .chip.link:hover { text-decoration: underline; }
+  /* "struggling" alarm: the whole page goes red, the server's card even more so */
+  body { transition: background-color .4s; }
+  body.alarm { background: color-mix(in srgb, var(--bad) 42%, var(--bg)); }
+  body.alarm header.top { background: color-mix(in srgb, var(--bad) 24%, var(--panel)); }
+  .card.sick { background: color-mix(in srgb, var(--bad) 24%, var(--panel)); border-color: var(--bad);
+               box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 60%, transparent); }
+  .sickrow { background: var(--bad); color: #fff; border-radius: 8px; padding: 8px 10px; font-weight: 600; }
+  .alarmbar { background: var(--bad); color: #fff; padding: 12px 16px; border-radius: 10px; margin-bottom: 16px;
+              font-weight: 700; font-size: 15px; }
+  .alarmbar ul { margin: 6px 0 0 20px; padding: 0; font-weight: 500; font-size: 14px; }
+  /* community dialog + Blood Moon chip */
+  dialog.medium { width: min(780px, 94vw); height: min(90vh, 980px); }
+  dialog.medium .form { height: 100%; overflow: auto; }
+  .form fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px 14px; margin: 0;
+                   display: flex; flex-direction: column; gap: 10px; }
+  .form legend { font-weight: 600; color: var(--text); padding: 0 6px; }
+  .form .checks { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+  .form .checks label.tg { font-size: 13px; }
+  .form pre { margin: 0; padding: 8px 10px; background: var(--chip); border-radius: 7px; max-height: 220px; overflow: auto;
+              font: 12px/1.5 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; }
+  .form input[type=password], .form input[type=text] { width: 100%; }
+  .chip.blood { background: #8c1023; color: #fff; font-weight: 600; }
+  .chip.bloodsoon { color: #d64545; }
+  .okmsg { color: var(--ok); } .errmsg { color: var(--bad); }
+  /* configs & backups dialog */
+  .bkbody { flex: 1; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .bkbody p { margin: 0; font-size: 13px; }
+  table.bk { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.bk th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  table.bk td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  table.bk tr:hover td { background: var(--chip); }
+  table.bk td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.bk td.act { text-align: right; white-space: nowrap; }
+  table.bk td.act button { padding: 3px 10px; font-size: 12px; }
+  .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; overflow-wrap: anywhere; }
+  .panel { background: var(--chip); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .panel .files { max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+  #bkEditor { flex: 1; min-height: 50vh; font: 12.5px/1.5 Consolas, "Cascadia Mono", monospace; padding: 10px; border-radius: 7px;
+              border: 1px solid var(--line); background: var(--panel); color: var(--text); resize: none; white-space: pre; }
+  .bkset { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: end; }
+  .bkset label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .bkset input[type=number], .bkset input[type=time] { font: inherit; padding: 6px 10px; border-radius: 7px; width: 120px;
+           border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+  .form textarea { font: 13px/1.45 "Segoe UI", system-ui, sans-serif; padding: 8px 10px; border-radius: 7px; width: 100%;
+                   border: 1px solid var(--line); background: var(--panel); color: var(--text); resize: vertical; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>ServerDeck <small id="clock"></small></h1>
+  <div class="sys" id="sys"></div>
+  <div class="controls">
+    <button id="serversBtn" title="Add or remove servers, SteamCMD and backup folder">Servers</button>
+    <button id="communityBtn" title="Discord feed, Blood Moon, survival tips, weekly leaderboard">Community</button>
+    <button id="backupsBtn" title="Config files, config backups, full backups, retention">Configs &amp; backups</button>
+    <button id="logsBtn" title="Server, mod, sidecar and update logs">Logs</button>
+    <button id="checkBtn">Check for updates</button>
+    <button id="deckRestartBtn" title="Reload ServerDeck itself; game servers keep running">Restart ServerDeck</button>
+  </div>
+</header>
+<main>
+  <div id="alarm"></div>
+  <div id="banner"></div>
+  <div class="grid" id="grid"></div>
+  <section class="events">
+    <h3>Activity <span class="muted" id="lastcheck"></span></h3>
+    <ol id="events"></ol>
+  </section>
+</main>
+<dialog id="logDlg">
+  <div class="dlg">
+    <div class="bar">
+      <div class="controls">
+        <h1>Logs</h1>
+        <select id="logServer" title="Server"></select>
+      </div>
+      <div class="controls">
+        <input type="text" id="logFilter" placeholder="Search…" autocomplete="off">
+        <label class="tg" title="Only lines that look like errors or warnings"><input type="checkbox" id="logErrors"> errors / warnings</label>
+        <select id="logLines" title="How many of the newest lines to show">
+          <option value="200">200 lines</option><option value="500" selected>500 lines</option>
+          <option value="2000">2000 lines</option><option value="10000">10000 lines</option>
+        </select>
+        <label class="tg" title="Refresh every 3 seconds and stay at the bottom"><input type="checkbox" id="logFollow" checked> live</label>
+        <button id="logDownload" title="Save the whole file">Download</button>
+        <button id="logClose">Close</button>
+      </div>
+    </div>
+    <div class="tabs" id="logTabs"></div>
+    <div class="logmeta" id="logMeta"></div>
+    <div class="logbody" id="logBody">loading...</div>
+    <form class="console" id="rconForm" hidden>
+      <input type="text" id="rconInput" placeholder="RCON command, e.g. status  ·  meta list  ·  css_plugins list  ·  oxide.plugins" autocomplete="off">
+      <button class="primary" type="submit">Send</button>
+    </form>
+  </div>
+</dialog>
+<dialog id="restartDlg" class="small">
+  <form method="dialog" class="form" id="restartForm">
+    <h2 id="rsTitle">Restart</h2>
+    <label>When
+      <select id="rsWarn"></select>
+    </label>
+    <p class="muted" id="rsNote"></p>
+    <div class="controls"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Restart</button></div>
+  </form>
+</dialog>
+<dialog id="schedDlg" class="small">
+  <form method="dialog" class="form" id="schedForm">
+    <h2 id="scTitle">Restart schedule</h2>
+    <label class="tg"><input type="checkbox" id="scEnabled"> Restart automatically on a cycle</label>
+    <div class="inline">
+      <label>Every (hours)<input type="number" id="scEvery" min="1" max="24" step="0.5" required></label>
+      <label>Starting at<input type="time" id="scStart" required></label>
+    </div>
+    <label>Warn players before each restart
+      <select id="scWarn">
+        <option value="0">No warning</option><option value="1">1 minute</option><option value="5">5 minutes</option>
+        <option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option>
+        <option value="60">60 minutes</option>
+      </select>
+    </label>
+    <div><p class="muted">Restarts every day at:</p><div class="times" id="scPreview"></div></div>
+    <p class="muted" id="scNote"></p>
+    <div class="controls"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Save</button></div>
+  </form>
+</dialog>
+<dialog id="setupDlg" class="medium">
+  <form method="dialog" class="form">
+    <h2>Servers</h2>
+    <fieldset>
+      <legend>Your servers</legend>
+      <div id="suList"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Add a server</legend>
+      <label>Game<select id="suTemplate"></select></label>
+      <p class="muted" id="suDesc"></p>
+      <div id="suFields" class="form" style="padding:0;gap:10px"></div>
+      <div class="controls" style="justify-content:flex-start"><button type="button" class="primary" id="suAdd">Add server</button><span id="suMsg"></span></div>
+    </fieldset>
+    <fieldset>
+      <legend>General</legend>
+      <label>SteamCMD (steamcmd.exe - installs and updates the servers)<input type="text" id="suSteamcmd" autocomplete="off"></label>
+      <p id="suSteamStatus"></p>
+      <label>Backups folder<input type="text" id="suBackups" autocomplete="off"></label>
+      <div class="controls" style="justify-content:flex-start">
+        <button type="button" id="suSaveGeneral" class="primary">Save</button>
+        <button type="button" id="suInstallSteam">Download SteamCMD there</button>
+        <span id="suGenMsg"></span>
+      </div>
+    </fieldset>
+    <div class="controls"><button value="cancel">Close</button></div>
+  </form>
+</dialog>
+<dialog id="bkDlg">
+  <div class="dlg">
+    <div class="bar">
+      <div class="controls">
+        <h1>Configs &amp; backups</h1>
+        <select id="bkTarget" title="Server"></select>
+      </div>
+      <div class="controls">
+        <button id="bkSnap" title="Zip this server's config files now">Back up configs now</button>
+        <button id="bkFull" title="World saves + configs, like before a restart">Full backup now</button>
+        <button id="bkClose">Close</button>
+      </div>
+    </div>
+    <div class="tabs" id="bkTabs">
+      <button data-tab="files" class="active">Config files</button>
+      <button data-tab="snaps">Config backups</button>
+      <button data-tab="full">Full backups</button>
+      <button data-tab="settings">Retention</button>
+    </div>
+    <div class="bkbody" id="bkBody">loading...</div>
+  </div>
+</dialog>
+<dialog id="commDlg" class="medium">
+  <form method="dialog" class="form" id="commForm">
+    <h2>Community</h2>
+    <fieldset>
+      <legend>Discord feed</legend>
+      <p id="dcStatus"></p>
+      <label>Webhook URL <span class="muted">(Discord: channel settings &rarr; Integrations &rarr; Webhooks &rarr; New Webhook &rarr; Copy Webhook URL; stored only on this PC)</span>
+        <input type="password" id="dcUrl" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
+      </label>
+      <div class="controls" style="justify-content:flex-start">
+        <button type="button" id="dcConnect" class="primary">Connect</button>
+        <button type="button" id="dcTest">Send test</button>
+        <button type="button" id="dcRemove" class="danger">Disconnect</button>
+        <span id="dcMsg"></span>
+      </div>
+      <label>Announcement <span class="muted">(posted as written; Discord formatting like **bold** and # headings works)</span>
+        <textarea id="anText" rows="6" placeholder="Write an update for the channel..."></textarea>
+      </label>
+      <div class="controls" style="justify-content:flex-start">
+        <label class="tg"><input type="checkbox" id="anPing"> ping @everyone</label>
+        <button type="button" id="anPost">Post announcement</button>
+        <span id="anMsg"></span>
+      </div>
+      <div><p class="muted">Post:</p><div class="checks" id="dcFeeds"></div></div>
+      <div><p class="muted">Restarts, updates and alarms of:</p><div class="checks" id="dcServers"></div></div>
+      <div class="inline">
+        <label>Weekly leaderboard on
+          <select id="lbDay"></select></label>
+        <label>at<input type="time" id="lbTime"></label>
+      </div>
+      <p class="muted" id="lbNext"></p>
+      <div class="controls" style="justify-content:flex-start">
+        <button type="button" id="lbPreview">Preview this week</button>
+        <button type="button" id="lbPost">Post it now</button>
+      </div>
+      <pre id="lbText" hidden></pre>
+    </fieldset>
+    <fieldset id="bmSet">
+      <legend id="bmLegend">Blood Moon (SCUM)</legend>
+      <label class="tg"><input type="checkbox" id="bmEnabled"> Every week: hordes roam, walkers hear further and take more killing, fame x2</label>
+      <div class="inline">
+        <label>Starts on<select id="bmDay"></select></label>
+        <label>at<input type="time" id="bmStart"></label>
+        <label>for (hours)<input type="number" id="bmHours" min="1" max="24" step="1"></label>
+      </div>
+      <p class="muted" id="bmNote"></p>
+    </fieldset>
+    <fieldset>
+      <legend>Survival tips (SCUM)</legend>
+      <label class="tg"><input type="checkbox" id="tpEnabled"> Show rotating tips and lore in SCUM</label>
+      <label>Every
+        <select id="tpEvery"><option value="15">15 minutes</option><option value="20">20 minutes</option>
+          <option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">60 minutes</option></select></label>
+      <p class="muted" id="tpNote"></p>
+    </fieldset>
+    <fieldset>
+      <legend>This week so far</legend>
+      <div id="wkTop" class="muted"></div>
+    </fieldset>
+    <div class="controls"><button value="cancel" formnovalidate>Close</button><button class="primary" value="ok">Save</button></div>
+  </form>
+</dialog>
+<script>
+const $ = (s) => document.querySelector(s);
+let data = null;
+
+const fmtBytes = (b) => b == null ? "-" : b >= 1073741824 ? (b / 1073741824).toFixed(1) + " GB"
+  : b >= 1048576 ? (b / 1048576).toFixed(b >= 104857600 ? 0 : 1) + " MB" : b >= 1024 ? Math.round(b / 1024) + " KB" : b + " B";
+const fmtDur = (s) => { if (s == null) return "-"; s = Math.floor(s); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m ${s % 60}s`; };
+const fmtAgo = (t) => { if (!t) return "never"; const s = Date.now() / 1000 - t; return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago"; };
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmtClock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtDay = (t) => new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-ServerDeck": "1" }, body: JSON.stringify(body) };
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function stateOf(s) {
+  if (s.job) return ["busy", s.job.name];
+  return [s.state || "unknown", { running: "online", starting: "starting", stopping: "stopping", stopped: "offline",
+    crashed: "crashed" }[s.state] || s.state];
+}
+
+function card(s) {
+  const [cls, label] = stateOf(s);
+  const players = s.players != null
+    ? `${s.humans ?? s.players}/${s.max_players}${s.bots ? ` <small>+${s.bots} bots</small>` : ""}`
+    : (s.running ? "n/a" : "-");
+  const ports = (s.ports || []).map((p) => `<span class="chip ${s.running ? (p.up ? "up" : "down") : ""}">${p.proto}/${p.port}</span>`).join(" ");
+  const upd = s.update_available
+    ? `<span class="upd">update available${s.mods_behind && s.mods_behind.length && !(+s.latest_build > +s.installed_build) ? " (" + s.mods_behind.join(", ") + ")" : " → " + esc(s.latest_build)}</span>`
+    : s.latest_build && s.installed_build ? `<span class="ok">up to date</span>` : "";
+  const checked = s.latest_checked ? `checked ${fmtAgo(s.latest_checked)}` : `<span class="muted">not checked yet</span>`;
+  const mods = Object.entries(s.mods || {}).map(([k, v]) => {
+    const latest = (s.mods_latest || {})[k];
+    const behind = latest && v && latest !== v;
+    return `<span class="chip ${behind ? "warn" : ""}" title="${behind ? "latest: " + esc(latest) : ""}">${esc(k)} ${esc(v || "missing")}${behind ? " → " + esc(latest) : ""}</span>`;
+  }).join(" ");
+  const sc = s.sidecar;
+  const sidecar = sc ? `<span class="chip link ${sc.state === "running" ? (sc.listening ? "up" : "warn") : ""}" data-act="sidecarlog"
+      title="Runs only while the server is online - click for its log">${esc(sc.label || "Sidecar")}: ${sc.state === "running" ? (sc.listening ? "online :" + sc.port : "starting") : "off"}</span>${sc.state === "running"
+      ? ` <span class="chip link" data-act="sidecar_restart" title="Restart the sidecar (e.g. after updating it)">&#8635; restart</span>` : ""}` : "";
+  const pl = s.plugins;
+  const plugins = (s.plugin_names || []).length && s.running ? (pl == null
+      ? `<span class="chip">plugin check pending</span>`
+      : pl.ok ? `<span class="chip up">${esc(s.plugin_names.join(", "))} plugin loaded</span>`
+      : pl.ok === false ? `<span class="chip down">${esc(pl.missing.join(", "))} plugin NOT loaded</span>`
+      : `<span class="chip warn" title="${esc(pl.error)}">plugin check failed</span>`) : "";
+  const busy = !!s.job;
+  const sch = s.schedule || {};
+  const nowS = Date.now() / 1000;
+  const schedule = sch.enabled
+    ? `<div class="row"><span>Auto-restart every <b>${esc(sch.every_hours)} h</b> from ${esc(sch.start)}</span>
+        ${s.next_restart ? `<span>next <b>${fmtClock(s.next_restart)}</b> (in ${fmtDur(s.next_restart - nowS)})</span>` : ""}
+        <span>${sch.warn_minutes ? `players warned ${sch.warn_minutes} min ahead${s.announce === "scum_notifications" ? " by SCUM" : ""}` : "no warning"}</span></div>`
+    : `<div class="row"><span class="muted">No scheduled restarts</span></div>`;
+  const evs = (s.events || []).filter((e) => e.enabled).map((e) => e.active
+      ? `<span class="chip blood" title="${esc(e.name)} settings are live">&#129656; ${esc(e.name)} until ${fmtDay(e.window[1])}</span>`
+      : e.next ? `<span class="chip bloodsoon" title="Restarts into the ${esc(e.name)} profile and back out of it">&#129656; ${esc(e.name)} ${fmtDay(e.next[0])} (in ${fmtDur(e.next[0] - nowS)})</span>` : "").join(" ");
+  const pf = s.perf || {};
+  const perf = pf.sim_speed != null
+    ? `<span class="chip ${pf.sim_speed < 0.7 ? "down" : pf.sim_speed < 0.9 ? "warn" : "up"}" title="1.00 = full speed">sim speed ${(+pf.sim_speed).toFixed(2)}</span>${pf.sim_cpu != null ? ` <span class="chip">sim CPU ${Math.round(pf.sim_cpu)}%</span>` : ""}`
+    : pf.fps != null ? (s.humans ? `<span class="chip ${pf.fps < 15 ? "down" : pf.fps < 25 ? "warn" : "up"}">server FPS ${(+pf.fps).toFixed(1)}</span>`
+                                 : `<span class="chip" title="Servers throttle their tick rate while nobody is on">server FPS ${(+pf.fps).toFixed(1)} (idle)</span>`) : "";
+  const cd = s.job && s.job.countdown_until;
+  const sick = s.health && s.health.ok === false;
+  const notInstalled = s.installed === false;
+  return `<article class="card s-${cls}${sick ? " sick" : ""}" data-id="${s.id}">
+    <div class="head"><h2>${esc(s.name)}</h2><span class="badge">${esc(s.kind)}</span>
+      <span class="state"><span class="dot"></span>${esc(label)}</span></div>
+    ${sick ? `<div class="sickrow">&#9888; Struggling${s.health.since ? ` for ${fmtDur(nowS - s.health.since)}` : ""}: ${esc(s.health.reasons.join("; "))}</div>` : ""}
+    ${s.server_name ? `<div class="row"><b>${esc(s.server_name)}</b>${s.map ? ` · ${esc(s.map)}` : ""}</div>` : ""}
+    <div class="stats">
+      <div class="stat"><div class="k">Players</div><div class="v">${players}</div></div>
+      <div class="stat"><div class="k">Uptime</div><div class="v">${s.running ? fmtDur(s.uptime) : "-"}</div></div>
+      <div class="stat"><div class="k">CPU</div><div class="v">${s.cpu != null ? s.cpu.toFixed(1) + "%" : "-"}</div></div>
+      <div class="stat"><div class="k">Memory</div><div class="v">${s.running ? fmtBytes(s.mem) : "-"}</div></div>
+    </div>
+    <div class="row">build <b>${esc(s.installed_build || "?")}</b>${upd ? " · " + upd : ""} · ${checked}</div>
+    ${mods || sidecar || plugins ? `<div class="row">${mods} ${plugins} ${sidecar}</div>` : ""}
+    <div class="row">${ports}${s.pid ? ` <span class="chip">pid ${s.pid}</span>` : ""} ${perf}</div>
+    ${schedule}
+    ${evs ? `<div class="row">${evs}</div>` : ""}
+    ${s.note ? `<div class="note">${esc(s.note)}</div>` : ""}
+    ${notInstalled && !busy ? `<div class="job">Not installed yet - press <b>Install</b> to download it with SteamCMD.</div>` : ""}
+    ${s.held ? `<div class="note">Auto-restart paused after repeated crashes. Press Start to try again.</div>` : ""}
+    ${busy ? `<div class="job"><b>${esc(s.job.name)}</b> — ${cd ? `restarting in <b>${fmtDur(cd - nowS)}</b> · players are being warned
+        <button data-act="cancel" style="margin-left:8px">Cancel restart</button>` : esc(s.job.step || "working")}
+        <span class="muted">(${fmtDur(nowS - s.job.started)})</span>${s.pending_stop ? " · stop queued" : ""}</div>` : ""}
+    <div class="controls">
+      <button class="primary" data-act="start" ${busy || s.running ? "disabled" : ""}>Start</button>
+      <button class="danger" data-act="stop" ${!s.running && !busy ? "disabled" : ""}>Stop</button>
+      <button data-act="restart" ${busy || !s.running ? "disabled" : ""}>Restart</button>
+      <button data-act="update" ${busy ? "disabled" : ""} ${notInstalled ? `class="primary"` : ""}>${notInstalled ? "Install" : "Update now"}</button>
+      <button data-act="schedule">Schedule</button>
+      <button data-act="log">${s.has_rcon ? "Logs & console" : "Logs"}</button>
+      <button data-act="backups" title="Config files, config backups, full backups">Configs</button>
+      <div class="toggles">
+        <label class="tg" title="Start it again if it goes down"><input type="checkbox" data-set="keep_online" ${s.keep_online ? "checked" : ""}> keep online</label>
+        <label class="tg" title="Install game and mod updates automatically"><input type="checkbox" data-set="auto_update" ${s.auto_update ? "checked" : ""}> auto-update</label>
+      </div>
+    </div>
+  </article>`;
+}
+
+function render() {
+  if (!data) return;
+  const sy = data.system || {};
+  const disks = Object.keys(sy).filter((k) => k.startsWith("disk_")).sort()
+    .map((k) => `<span>${k.slice(5)}: <b>${fmtBytes(sy[k].free)} free</b></span>`).join("");
+  $("#sys").innerHTML = `<span>CPU <b>${sy.cpu != null ? sy.cpu.toFixed(0) + "%" : "-"}</b></span>
+    <span>RAM <b>${fmtBytes(sy.mem_used)}</b> / ${fmtBytes(sy.mem_total)}</span>${disks}`;
+  $("#banner").innerHTML = !data.admin
+    ? `<div class="banner">ServerDeck is not running elevated, so it can show status but cannot control servers. Start it from the "ServerDeck" scheduled task (install.ps1 creates it).</div>`
+    : data.first_run ? `<div class="banner">No servers yet. <button class="primary" data-first="add">Add a server</button> - pick a game, choose where it goes, then press Install on its card.</div>` : "";
+  $("#lastcheck").textContent = "last update check: " + fmtAgo(data.last_check);
+  $("#grid").innerHTML = data.servers.map(card).join("");
+  const sickServers = data.servers.filter((s) => s.health && s.health.ok === false);
+  const pc = data.system_health && data.system_health.ok === false ? data.system_health : null;
+  document.body.classList.toggle("alarm", sickServers.length > 0 || !!pc);
+  $("#alarm").innerHTML = sickServers.length || pc
+    ? `<div class="alarmbar">&#9888; ${sickServers.length + (pc ? 1 : 0) > 1 ? "Things are" : "Something is"} struggling<ul>
+        ${pc ? `<li>This PC: ${esc(pc.reasons.join("; "))}</li>` : ""}
+        ${sickServers.map((s) => `<li>${esc(s.name)}: ${esc(s.health.reasons.join("; "))}</li>`).join("")}</ul></div>`
+    : "";
+  $("#events").innerHTML = data.events.slice().reverse().map((e) =>
+    `<li class="${e.level}"><span class="t">${new Date(e.t * 1000).toLocaleString()}</span><span class="sv">${esc(e.server || "deck")}</span><span>${esc(e.msg)}</span></li>`).join("");
+  $("#clock").textContent = new Date(data.time * 1000).toLocaleTimeString();
+}
+
+let openedFromHash = false;
+async function refresh() {
+  try { data = await api("/api/status"); render(); }
+  catch (e) { $("#banner").innerHTML = `<div class="banner">Cannot reach ServerDeck: ${esc(e.message)}</div>`; return; }
+  // Deep link, e.g. http://127.0.0.1:8787/#logs=cs2:Sidecar
+  const m = !openedFromHash && location.hash.match(/^#logs(?:=([\w-]+)(?::(.+))?)?$/);
+  if (m) { openedFromHash = true; openLogs(m[1], m[2] && decodeURIComponent(m[2])); }
+  if (!openedFromHash && location.hash === "#community") { openedFromHash = true; openCommunity(); }
+  const bm = !openedFromHash && location.hash.match(/^#backups(?:=([\w-]+))?$/);
+  if (bm) { openedFromHash = true; openBackups(bm[1] || (data.servers[0] && data.servers[0].id)); }
+}
+
+const confirmText = {
+  stop: (n) => `Stop ${n} and keep it offline?`,
+  update: (n) => `Update ${n} now? It is backed up, updated with file validation, its mods are re-applied, and it is started again if it was running.`,
+};
+
+// ---- restart dialog -------------------------------------------------------
+let dlgServer = null;
+function openRestart(srv) {
+  dlgServer = srv;
+  $("#rsTitle").textContent = `Restart ${srv.name}`;
+  const opts = [["0", "Restart now"]];
+  if (srv.can_announce) for (const m of [1, 5, 10, 15, 30]) opts.push([String(m), `Warn players, restart in ${m} minute${m > 1 ? "s" : ""}`]);
+  $("#rsWarn").innerHTML = opts.map(([v, t]) => `<option value="${v}">${t}</option>`).join("");
+  const dflt = srv.can_announce ? String((srv.schedule || {}).warn_minutes || 10) : "0";
+  $("#rsWarn").value = [...$("#rsWarn").options].some((o) => o.value === dflt) ? dflt : "0";
+  $("#rsNote").textContent = srv.can_announce
+    ? "Players get a countdown in chat (10, 5, 3, 1 min, 30 s, 10 s). If nobody is online it restarts right away."
+    : "SCUM has no way to message players live; only scheduled restarts are announced (through SCUM's own notifications).";
+  $("#restartDlg").returnValue = "";   // Esc must not repeat the last "ok"
+  $("#restartDlg").showModal();
+}
+$("#restartDlg").addEventListener("close", async () => {
+  if ($("#restartDlg").returnValue !== "ok" || !dlgServer) return;
+  try { await api(`/api/servers/${dlgServer.id}/restart`, { warn_minutes: +$("#rsWarn").value }); } catch (e) { alert(e.message); }
+  refresh();
+});
+
+// ---- schedule dialog --------------------------------------------------------
+function previewTimes() {
+  const every = Math.max(1, Math.min(24, +$("#scEvery").value || 6)), start = $("#scStart").value || "00:00";
+  const [h, m] = start.split(":").map(Number), step = Math.round(every * 60), out = new Set();
+  for (let k = 0; k < Math.ceil(1440 / step); k++) out.add((h * 60 + m + k * step) % 1440);
+  const times = [...out].sort((a, b) => a - b).map((t) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`);
+  $("#scPreview").innerHTML = $("#scEnabled").checked ? times.map((t) => `<span class="chip">${t}</span>`).join("") : `<span class="muted">(disabled)</span>`;
+}
+function openSchedule(srv) {
+  dlgServer = srv;
+  const sch = srv.schedule || {};
+  $("#scTitle").textContent = `${srv.name} - restart schedule`;
+  $("#scEnabled").checked = !!sch.enabled;
+  $("#scEvery").value = sch.every_hours ?? 6;
+  $("#scStart").value = sch.start || "00:00";
+  $("#scWarn").value = String(sch.warn_minutes ?? 10);
+  $("#scNote").textContent = srv.announce === "scum_notifications"
+    ? "SCUM warns players itself: ServerDeck writes the warning times into SCUM's Notifications.json, which SCUM loads when it starts."
+    : srv.can_announce ? "Players get a chat countdown (10, 5, 3, 1 min, 30 s, 10 s); the restart happens exactly at the scheduled time."
+    : "";
+  previewTimes();
+  $("#schedDlg").returnValue = "";
+  $("#schedDlg").showModal();
+}
+for (const el of ["#scEnabled", "#scEvery", "#scStart"]) $(el).addEventListener("input", previewTimes);
+$("#schedDlg").addEventListener("close", async () => {
+  if ($("#schedDlg").returnValue !== "ok" || !dlgServer) return;
+  try {
+    const j = await api(`/api/servers/${dlgServer.id}/schedule`, { enabled: $("#scEnabled").checked,
+      every_hours: +$("#scEvery").value, start: $("#scStart").value, warn_minutes: +$("#scWarn").value });
+    if (j.note) alert(j.note);
+  } catch (e) { alert(e.message); }
+  refresh();
+});
+
+$("#grid").addEventListener("click", async (ev) => {
+  const btn = ev.target.closest("[data-act]"); if (!btn) return;
+  const id = btn.closest(".card").dataset.id, act = btn.dataset.act;
+  const srv = data.servers.find((s) => s.id === id);
+  if (act === "log") return openLogs(id);
+  if (act === "backups") return openBackups(id);
+  if (act === "sidecarlog") return openLogs(id, (srv.sidecar && srv.sidecar.label) || "Sidecar");
+  if (act === "restart") return openRestart(srv);
+  if (act === "schedule") return openSchedule(srv);
+  if (act === "cancel" && !window.confirm(`Cancel the pending restart of ${srv.name}? Players are told it was cancelled.`)) return;
+  if (act === "sidecar_restart" && !window.confirm(`Restart the ${(srv.sidecar && srv.sidecar.label) || "sidecar"} for ${srv.name}? It is back within a few seconds; the game server keeps running.`)) return;
+  if (act === "update" && srv.installed === false) {
+    if (!window.confirm(`Install ${srv.name} now? SteamCMD downloads it - several GB, so this can take a while. Watch the card for progress.`)) return;
+  } else if (confirmText[act] && !window.confirm(confirmText[act](srv.name))) return;
+  btn.disabled = true;
+  try { await api(`/api/servers/${id}/${act}`, {}); } catch (e) { alert(e.message); }
+  refresh();
+});
+
+$("#grid").addEventListener("change", async (ev) => {
+  const cb = ev.target.closest("input[data-set]"); if (!cb) return;
+  const id = cb.closest(".card").dataset.id;
+  try { await api(`/api/servers/${id}/settings`, { [cb.dataset.set]: cb.checked }); } catch (e) { alert(e.message); }
+  refresh();
+});
+
+$("#checkBtn").addEventListener("click", async () => { await api("/api/check-updates", {}); setTimeout(refresh, 1500); });
+$("#deckRestartBtn").addEventListener("click", async () => {
+  if (!window.confirm("Restart ServerDeck? Game servers keep running; the page reconnects in ~10 seconds.")) return;
+  try { await api("/api/deck/restart", {}); }
+  catch (e) { if (/wait for/.test(e.message)) alert(e.message); /* otherwise it is simply going away */ }
+});
+
+// ---- log viewer -------------------------------------------------------------
+const logState = { server: null, source: "", lines: [], meta: {}, rcon: [], timer: null };
+const ERR_RE = /\b(error|exception|fatal|failed|failure|crash(ed)?|traceback|critical)\b/i;
+const WARN_RE = /\bwarn(ing)?\b/i;
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function logTargets() {
+  return [...data.servers.map((s) => ({ id: s.id, name: s.name, logs: s.logs || [], has_rcon: s.has_rcon })),
+          { id: "deck", name: "ServerDeck (manager)", logs: ["ServerDeck"], has_rcon: false }];
+}
+function openLogs(serverId, source) {
+  const targets = logTargets();
+  $("#logServer").innerHTML = targets.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  selectLogServer((targets.find((t) => t.id === serverId) || targets[0]).id, source);
+  if (!$("#logDlg").open) $("#logDlg").showModal();
+  clearInterval(logState.timer);
+  logState.timer = setInterval(() => { if ($("#logFollow").checked) loadLog(); }, 3000);
+}
+function selectLogServer(id, source) {
+  const t = logTargets().find((x) => x.id === id);
+  logState.server = id;
+  $("#logServer").value = id;
+  logState.source = source && t.logs.includes(source) ? source : (t.logs[0] || "");
+  $("#logTabs").innerHTML = t.logs.map((n) => `<button data-src="${esc(n)}" class="${n === logState.source ? "active" : ""}">${esc(n)}</button>`).join("");
+  $("#rconForm").hidden = !t.has_rcon;
+  logState.rcon = []; logState.lines = []; logState.meta = {};
+  $("#logBody").textContent = "loading...";
+  loadLog();
+}
+async function loadLog() {
+  if (!logState.server) return;
+  const n = $("#logLines").value;
+  const url = logState.server === "deck" ? `/api/deck/log?n=${n}`
+    : `/api/servers/${logState.server}/log?n=${n}&source=${encodeURIComponent(logState.source)}`;
+  try {
+    const j = await api(url);
+    logState.lines = j.lines || []; logState.meta = j;
+    renderLog();
+  } catch (e) { $("#logBody").textContent = "Error: " + e.message; }
+}
+function renderLog() {
+  const body = $("#logBody"), atBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 40;
+  const q = $("#logFilter").value.trim(), errOnly = $("#logErrors").checked;
+  const qre = q ? new RegExp(escRe(esc(q)), "gi") : null;
+  const html = [];
+  let shown = 0;
+  for (const line of logState.lines) {
+    const isErr = ERR_RE.test(line), isWarn = !isErr && WARN_RE.test(line);
+    if (errOnly && !isErr && !isWarn) continue;
+    if (q && !line.toLowerCase().includes(q.toLowerCase())) continue;
+    shown++;
+    let h = esc(line);
+    if (qre) h = h.replace(qre, (m) => `<mark>${m}</mark>`);
+    html.push(`<span class="ln${isErr ? " err" : isWarn ? " wrn" : ""}">${h || " "}</span>`);
+  }
+  for (const r of logState.rcon) html.push(`<span class="ln cmd">&gt; ${esc(r.cmd)}</span><span class="ln">${esc(r.out)}</span>`);
+  body.innerHTML = html.join("") || `<span class="muted">${logState.lines.length ? "No lines match." : "(empty)"}</span>`;
+  const m = logState.meta || {};
+  $("#logMeta").textContent = m.path
+    ? `${m.path}  ·  ${m.size != null ? fmtBytes(m.size) : "?"}  ·  updated ${m.mtime ? new Date(m.mtime * 1000).toLocaleString() : "never"}  ·  showing ${shown} of the newest ${logState.lines.length} lines`
+    : "";
+  if ($("#logFollow").checked || atBottom) body.scrollTop = body.scrollHeight;
+}
+$("#logServer").addEventListener("change", () => selectLogServer($("#logServer").value));
+$("#logTabs").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-src]"); if (!b) return;
+  logState.source = b.dataset.src; logState.rcon = [];
+  for (const x of $("#logTabs").children) x.classList.toggle("active", x === b);
+  $("#logBody").textContent = "loading..."; loadLog();
+});
+$("#logFilter").addEventListener("input", renderLog);
+$("#logErrors").addEventListener("change", renderLog);
+$("#logLines").addEventListener("change", loadLog);
+$("#logDownload").addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.href = logState.server === "deck" ? "/api/deck/logfile"
+    : `/api/servers/${logState.server}/logfile?source=${encodeURIComponent(logState.source)}`;
+  a.download = ""; document.body.appendChild(a); a.click(); a.remove();
+});
+$("#logClose").addEventListener("click", () => $("#logDlg").close());
+$("#logDlg").addEventListener("close", () => { clearInterval(logState.timer); logState.server = null; });
+$("#rconForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const cmd = $("#rconInput").value.trim(); if (!cmd || !logState.server) return;
+  $("#rconInput").value = "";
+  let out;
+  try { out = (await api(`/api/servers/${logState.server}/rcon`, { command: cmd })).output || "(no output)"; }
+  catch (e) { out = "Error: " + e.message; }
+  logState.rcon.push({ cmd, out });
+  renderLog();
+  $("#logBody").scrollTop = $("#logBody").scrollHeight;
+});
+$("#logsBtn").addEventListener("click", () => openLogs(data && data.servers[0] && data.servers[0].id));
+
+// ---- community dialog: Discord feed, Blood Moon, survival tips ---------------
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const FEED_LABELS = { restarts: "Restarts & updates", alarms: "Struggling alarms", events: "Blood Moon",
+  quests: "Quest completions", milestones: "Walker-kill awards", leaderboard: "Weekly leaderboard" };
+for (const sel of ["#lbDay", "#bmDay"]) $(sel).innerHTML = DAYS.map((d, i) => `<option value="${i}">${d}</option>`).join("");
+const eventServer = () => data.servers.find((s) => (s.events || []).length);
+function commStatus() {
+  const d = (data.community || {}).discord || {};
+  $("#dcStatus").innerHTML = d.configured
+    ? `<span class="okmsg">Connected</span>${d.sent ? ` · ${d.sent} message(s) sent since ServerDeck started` : ""}${d.last_error ? ` · <span class="errmsg">last problem: ${esc(d.last_error)}</span>` : ""}`
+    : `<span class="muted">Not connected - paste a Discord webhook URL to post server news to a channel.</span>`;
+  $("#dcTest").disabled = $("#dcRemove").disabled = !d.configured;
+}
+function openCommunity() {
+  const c = data.community || {}, d = c.discord || {}, lb = c.leaderboard || {};
+  commStatus();
+  $("#dcUrl").value = ""; $("#dcMsg").textContent = "";
+  $("#dcFeeds").innerHTML = Object.entries(FEED_LABELS).map(([k, t]) =>
+    `<label class="tg"><input type="checkbox" data-feed="${k}" ${(d.feeds || {})[k] !== false ? "checked" : ""}> ${t}</label>`).join("");
+  $("#dcServers").innerHTML = data.servers.map((s) =>
+    `<label class="tg"><input type="checkbox" data-srv="${s.id}" ${(d.servers || []).includes(s.id) ? "checked" : ""}> ${esc(s.name)}</label>`).join("");
+  $("#lbDay").value = String(lb.weekday ?? 6); $("#lbTime").value = lb.time || "20:00";
+  $("#lbNext").textContent = lb.next ? `Next leaderboard: ${fmtDay(lb.next)}` : "";
+  $("#lbText").hidden = true;
+  const srv = eventServer(), ev = srv && srv.events[0];
+  $("#bmSet").hidden = !ev;
+  if (ev) {
+    $("#bmLegend").textContent = `${ev.name} (${srv.name})`;
+    $("#bmEnabled").checked = ev.enabled; $("#bmDay").value = String(ev.weekday);
+    $("#bmStart").value = ev.start; $("#bmHours").value = ev.hours;
+    $("#bmNote").textContent = (ev.active ? `Active now, until ${fmtDay(ev.window[1])}. ` : ev.next ? `Next: ${fmtDay(ev.next[0])} to ${fmtDay(ev.next[1])}. ` : "")
+      + `${srv.name} restarts when it begins and when it ends (with the usual warnings) to switch settings.`;
+  }
+  const tp = c.tips || {};
+  $("#tpEnabled").checked = tp.enabled !== false; $("#tpEvery").value = String(tp.every_minutes || 30);
+  $("#tpNote").textContent = `${tp.count || 0} tips rotate through SCUM's own announcements. SCUM loads them when it starts (every scheduled restart).`;
+  const wk = c.week || {};
+  $("#wkTop").innerHTML = (wk.top || []).length
+    ? `<ol style="margin:0;padding-left:20px">${wk.top.slice(0, 5).map((p) => `<li><b>${esc(p.name)}</b> - ${p.walkers} walkers, ${p.quests} quests, ${Math.round(p.fame)} fame</li>`).join("")}</ol>`
+    : "Nothing recorded yet this week (walker kills, quests and fame come from SCUM's logs).";
+  $("#commDlg").returnValue = "";
+  $("#commDlg").showModal();
+}
+async function commCall(body, okText) {
+  $("#dcMsg").className = ""; $("#dcMsg").textContent = "working...";
+  try {
+    const j = await api("/api/community", body);
+    $("#dcMsg").className = "okmsg"; $("#dcMsg").textContent = okText;
+    await refresh(); commStatus(); return j || {};
+  } catch (e) { $("#dcMsg").className = "errmsg"; $("#dcMsg").textContent = e.message; return null; }
+}
+$("#dcConnect").addEventListener("click", async () => {
+  const url = $("#dcUrl").value.trim();
+  if (!url) { $("#dcMsg").className = "errmsg"; $("#dcMsg").textContent = "paste the webhook URL first"; return; }
+  if (await commCall({ action: "webhook", url }, "connected - a test message was posted")) $("#dcUrl").value = "";
+});
+$("#dcTest").addEventListener("click", () => commCall({ action: "test" }, "test message sent"));
+$("#anPost").addEventListener("click", async () => {
+  const text = $("#anText").value.trim(), ping = $("#anPing").checked;
+  if (!text) { $("#anMsg").className = "errmsg"; $("#anMsg").textContent = "write something first"; return; }
+  if (!confirm(`Post this announcement to Discord${ping ? " and ping @everyone" : ""}?`)) return;
+  $("#anMsg").className = ""; $("#anMsg").textContent = "posting...";
+  try {
+    const j = await api("/api/community", { action: "announce", text, ping });
+    $("#anMsg").className = "okmsg"; $("#anMsg").textContent = `posted (${j.messages} message${j.messages > 1 ? "s" : ""})`;
+    $("#anText").value = "";
+  } catch (e) { $("#anMsg").className = "errmsg"; $("#anMsg").textContent = e.message; }
+});
+$("#dcRemove").addEventListener("click", () => { if (confirm("Disconnect Discord? ServerDeck stops posting.")) commCall({ action: "remove_webhook" }, "disconnected"); });
+$("#lbPreview").addEventListener("click", async () => {
+  try { const j = await api("/api/community", { action: "leaderboard_preview" }); $("#lbText").textContent = j.text; $("#lbText").hidden = false; }
+  catch (e) { alert(e.message); }
+});
+$("#lbPost").addEventListener("click", async () => {
+  if (!confirm("Post this week's leaderboard to Discord now? The weekly one still goes out as scheduled.")) return;
+  try { const j = await api("/api/community", { action: "leaderboard_preview", post: true }); $("#lbText").textContent = j.text; $("#lbText").hidden = false; }
+  catch (e) { alert(e.message); }
+});
+$("#commDlg").addEventListener("close", async () => {
+  if ($("#commDlg").returnValue !== "ok") return;
+  const feeds = {};
+  for (const cb of $("#dcFeeds").querySelectorAll("input[data-feed]")) feeds[cb.dataset.feed] = cb.checked;
+  const servers = [...$("#dcServers").querySelectorAll("input[data-srv]")].filter((cb) => cb.checked).map((cb) => cb.dataset.srv);
+  const body = { action: "save", feeds, servers, leaderboard: { weekday: +$("#lbDay").value, time: $("#lbTime").value || "20:00" },
+    tips: { enabled: $("#tpEnabled").checked, every_minutes: +$("#tpEvery").value } };
+  const srv = eventServer(), ev = srv && srv.events[0];
+  if (ev) body.events = { [ev.id]: { enabled: $("#bmEnabled").checked, weekday: +$("#bmDay").value,
+    start: $("#bmStart").value || "18:00", hours: +$("#bmHours").value || 12 } };
+  try { const j = await api("/api/community", body); if (j.note) alert(j.note); } catch (e) { alert(e.message); }
+  refresh();
+});
+$("#communityBtn").addEventListener("click", () => data && openCommunity());
+
+// ---- configs & backups dialog --------------------------------------------------
+const bk = { target: null, tab: "files", data: null, overview: null, editing: null, restoreOpen: null };
+const fmtWhen = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+async function openBackups(tid) {
+  try { bk.overview = await api("/api/backups"); } catch (e) { alert(e.message); return; }
+  $("#bkTarget").innerHTML = bk.overview.targets.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  bk.target = bk.overview.targets.some((t) => t.id === tid) ? tid : bk.overview.targets[0].id;
+  $("#bkTarget").value = bk.target;
+  bk.tab = "files"; bk.editing = null; bk.restoreOpen = null;
+  if (!$("#bkDlg").open) $("#bkDlg").showModal();
+  await loadBk();
+}
+async function loadBk() {
+  try { bk.data = await api(`/api/backups/${bk.target}`); } catch (e) { $("#bkBody").textContent = "Error: " + e.message; return; }
+  renderBk();
+}
+function renderBk() {
+  for (const b of $("#bkTabs").children) b.classList.toggle("active", b.dataset.tab === bk.tab);
+  const d = bk.data, body = $("#bkBody");
+  $("#bkFull").disabled = !d.has_full;
+  if (bk.tab === "files") {
+    if (bk.editing) return renderEditor();
+    body.innerHTML = `<p class="muted">${esc(d.name)}'s config files (its <span class="mono">config_files</span> list in config.json). Editing one backs up the current files first. The server reads its config when it starts, so restart it afterwards.</p>
+      ${d.files.length ? `<table class="bk"><tr><th>File</th><th>Size</th><th>Modified</th><th></th></tr>${d.files.map((f) =>
+        `<tr><td class="mono" title="${esc(f.path)}">${esc(f.rel)}</td><td class="num">${fmtBytes(f.size)}</td><td class="num">${fmtWhen(f.mtime)}</td>
+         <td class="act"><button data-edit="${esc(f.rel)}">View / edit</button> <button data-dl="file" data-name="${esc(f.rel)}">Download</button></td></tr>`).join("")}</table>`
+        : `<p>No config files are listed for this server yet: add <span class="mono">"config_files"</span> globs to it in config.json.</p>`}`;
+  } else if (bk.tab === "snaps") {
+    body.innerHTML = `<p class="muted">Made before every start, restart, update, edit and restore (only when something changed), every day at ${esc(bk.overview.settings.daily_time)}, and with "Back up configs now". Restoring backs up the current files first, so a restore can be undone.</p>
+      ${d.snapshots.length ? `<table class="bk"><tr><th>When</th><th>Why</th><th>Size</th><th></th></tr>${d.snapshots.map((s) =>
+        `<tr><td>${fmtWhen(s.time)}</td><td>${esc(s.reason)}</td><td class="num">${fmtBytes(s.size)}</td>
+         <td class="act"><button data-restore-snap="${esc(s.name)}">${bk.restoreOpen === s.name ? "Close" : "Restore..."}</button> <button data-dl="snapshot" data-name="${esc(s.name)}">Download</button></td></tr>
+         ${bk.restoreOpen === s.name ? `<tr><td colspan="4"><div class="panel" id="bkRestorePanel">loading the file list...</div></td></tr>` : ""}`).join("")}</table>`
+        : `<p>No config backups yet - press "Back up configs now".</p>`}`;
+    if (bk.restoreOpen) loadRestorePanel(bk.restoreOpen);
+  } else if (bk.tab === "full") {
+    body.innerHTML = d.has_full ? `<p class="muted">World saves + configs (${esc(d.full_paths.map((p) => p.split("\\").pop()).join(", "))}), made before every restart and update. Restoring one stops the server, moves the current folders aside (kept as <span class="mono">&lt;folder&gt;.before-restore-&lt;time&gt;</span>), unpacks the backup and starts the server again - <b>players lose everything since that backup</b>.</p>
+      ${d.full.length ? `<table class="bk"><tr><th>When</th><th>Why</th><th>Size</th><th></th></tr>${d.full.map((f) =>
+        `<tr><td>${fmtWhen(f.time)}</td><td>${esc(f.reason)}${f.ours ? "" : ` <span class="chip" title="Not made by ServerDeck - download it to restore by hand">older backup</span>`}</td><td class="num">${fmtBytes(f.size)}</td>
+         <td class="act">${f.ours ? `<button class="danger" data-restore-full="${esc(f.name)}">Restore...</button> ` : ""}<button data-dl="full" data-name="${esc(f.name)}">Download</button></td></tr>`).join("")}</table>`
+        : `<p>No full backups yet.</p>`}`
+      : `<p>No full backups are configured for ${esc(d.name)}.</p>`;
+  } else {
+    const st = bk.overview.settings;
+    body.innerHTML = `<div class="bkset">
+        <label>Keep backups for (days)<input type="number" id="bkDays" min="1" max="3650" value="${st.keep_days}"></label>
+        <label>Always keep the newest<input type="number" id="bkMin" min="1" max="100" value="${st.keep_min}"></label>
+        <label>Daily config backup at<input type="time" id="bkDaily" value="${esc(st.daily_time)}"></label>
+        <button class="primary" id="bkSaveSet">Save</button><button id="bkPrune">Clean up now</button><span id="bkSetMsg"></span>
+      </div>
+      <label class="tg"><input type="checkbox" id="bkOther" ${st.include_other ? "checked" : ""}> Also delete older backups that ServerDeck didn't make, once they pass the limit (same folders)</label>
+      <p class="muted">Covers config backups, full backups, folders moved aside by a restore and old content-script backups. Anything older than the limit is deleted every day and after each new backup, but the newest ones of each kind always stay. Config backups are in <span class="mono">${esc(bk.overview.root)}\\configs</span>.</p>
+      <table class="bk"><tr><th>Server</th><th>Config backups</th><th>Full backups</th><th>Older backups (not ServerDeck's)</th></tr>${bk.overview.usage.map((u) =>
+        `<tr><td>${esc(u.name)}</td><td>${u.config_count} · ${fmtBytes(u.config_bytes)}</td><td>${u.full_count ? `${u.full_count} · ${fmtBytes(u.full_bytes)}` : "-"}</td><td>${u.other_count ? `${u.other_count} · ${fmtBytes(u.other_bytes)}` : "-"}</td></tr>`).join("")}</table>`;
+  }
+}
+function renderEditor() {
+  const f = bk.editing;
+  $("#bkBody").innerHTML = `<div class="controls"><button id="bkBack">&larr; Back</button>
+      <span class="mono">${esc(f.path)}</span><span class="muted">${fmtBytes(f.size)} · modified ${fmtWhen(f.mtime)}</span>
+      <span style="margin-left:auto" id="bkEdMsg"></span>${f.text != null ? `<button class="primary" id="bkSaveFile">Save</button>` : ""}</div>
+    ${f.text != null ? `<textarea id="bkEditor" spellcheck="false"></textarea>
+      <p class="muted">Saving backs up the current files first. Restart the server afterwards - it reads its config when it starts.</p>`
+      : `<p>${esc(f.why)}.</p>`}`;
+  if (f.text != null) $("#bkEditor").value = f.text;
+}
+async function loadRestorePanel(name) {
+  let m;
+  try { m = await api(`/api/backups/${bk.target}/manifest?name=${encodeURIComponent(name)}`); }
+  catch (e) { $("#bkRestorePanel").textContent = "Error: " + e.message; return; }
+  if (!$("#bkRestorePanel")) return;
+  const srv = data.servers.find((s) => s.id === bk.target);
+  $("#bkRestorePanel").innerHTML = `<b>Restore files from ${fmtWhen(m.time)} (${esc(m.reason)})</b>
+    <div class="controls" style="justify-content:flex-start"><button data-selall="1">Select all</button><button data-selall="0">Select none</button>
+      ${srv ? `<label class="tg"><input type="checkbox" id="bkRestart" ${srv.running ? "checked" : ""}> stop ${esc(srv.name)}, restore, then start it again</label>`
+            : `<span class="muted">ServerDeck restarts itself to load the restored files.</span>`}</div>
+    <div class="files">${m.files.map((f) => `<label class="tg"><input type="checkbox" data-rel="${esc(f.rel)}" checked> <span class="mono">${esc(f.rel)}</span> <span class="muted">${fmtBytes(f.size)}</span></label>`).join("")}</div>
+    <div class="controls" style="justify-content:flex-start"><button class="primary" id="bkDoRestore" data-name="${esc(name)}">Restore selected files</button><span id="bkRsMsg"></span></div>`;
+}
+function bkDownload(kind, name) {
+  const a = document.createElement("a");
+  a.href = `/api/backups/${bk.target}/download?kind=${kind}&name=${encodeURIComponent(name)}`;
+  a.download = ""; document.body.appendChild(a); a.click(); a.remove();
+}
+$("#bkBody").addEventListener("click", async (ev) => {
+  const el = ev.target.closest("button"); if (!el) return;
+  if (el.dataset.edit) {
+    try { bk.editing = await api(`/api/backups/${bk.target}/file?rel=${encodeURIComponent(el.dataset.edit)}`); renderBk(); } catch (e) { alert(e.message); }
+  } else if (el.dataset.dl) { bkDownload(el.dataset.dl, el.dataset.name); }
+  else if (el.id === "bkBack") { bk.editing = null; loadBk(); }
+  else if (el.id === "bkSaveFile") {
+    $("#bkEdMsg").className = ""; $("#bkEdMsg").textContent = "saving...";
+    try {
+      const j = await api(`/api/backups/${bk.target}/save_file`, { rel: bk.editing.rel, text: $("#bkEditor").value, mtime: bk.editing.mtime });
+      bk.editing.mtime = j.mtime; $("#bkEdMsg").className = "okmsg"; $("#bkEdMsg").textContent = "saved (a backup was made first) - restart the server to use it";
+    } catch (e) { $("#bkEdMsg").className = "errmsg"; $("#bkEdMsg").textContent = e.message; }
+  } else if (el.dataset.restoreSnap) { bk.restoreOpen = bk.restoreOpen === el.dataset.restoreSnap ? null : el.dataset.restoreSnap; renderBk(); }
+  else if (el.dataset.selall) { for (const cb of $("#bkRestorePanel").querySelectorAll("input[data-rel]")) cb.checked = el.dataset.selall === "1"; }
+  else if (el.id === "bkDoRestore") {
+    const files = [...$("#bkRestorePanel").querySelectorAll("input[data-rel]")].filter((c) => c.checked).map((c) => c.dataset.rel);
+    if (!files.length) { $("#bkRsMsg").textContent = "select at least one file"; return; }
+    const restart = $("#bkRestart") ? $("#bkRestart").checked : false;
+    if (!confirm(`Restore ${files.length} file(s)${restart ? " and restart the server" : ""}? The current files are backed up first.`)) return;
+    try { const j = await api(`/api/backups/${bk.target}/restore`, { kind: "snapshot", name: el.dataset.name, files, restart });
+          $("#bkRsMsg").className = "okmsg"; $("#bkRsMsg").textContent = `restoring ${j.files} file(s) - follow it on the server card`; setTimeout(loadBk, 3000); }
+    catch (e) { $("#bkRsMsg").className = "errmsg"; $("#bkRsMsg").textContent = e.message; }
+  } else if (el.dataset.restoreFull) {
+    const srv = data.servers.find((s) => s.id === bk.target);
+    if (!confirm(`Restore the full backup ${el.dataset.restoreFull}?\n\n${srv ? srv.name : "The server"} is stopped, its current folders are moved aside (not deleted), the backup is unpacked and the server starts again.\n\nPlayers lose everything since this backup.`)) return;
+    try { await api(`/api/backups/${bk.target}/restore`, { kind: "full", name: el.dataset.restoreFull }); alert("Restore started - follow it on the server card."); $("#bkDlg").close(); refresh(); }
+    catch (e) { alert(e.message); }
+  } else if (el.id === "bkSaveSet") {
+    try {
+      await api("/api/backups/settings/save", { keep_days: +$("#bkDays").value, keep_min: +$("#bkMin").value,
+        daily_time: $("#bkDaily").value || "04:30", include_other: $("#bkOther").checked });
+      bk.overview = await api("/api/backups"); renderBk(); $("#bkSetMsg").className = "okmsg"; $("#bkSetMsg").textContent = "saved";
+    } catch (e) { $("#bkSetMsg").className = "errmsg"; $("#bkSetMsg").textContent = e.message; }
+  } else if (el.id === "bkPrune") {
+    if (!confirm(`Delete backups older than ${bk.overview.settings.keep_days} days now (the newest ${bk.overview.settings.keep_min} of each kind stay)?`)) return;
+    try { const j = await api("/api/backups/settings/prune", {}); bk.overview = await api("/api/backups"); renderBk();
+          $("#bkSetMsg").className = "okmsg"; $("#bkSetMsg").textContent = `removed ${j.removed} backup(s), ${fmtBytes(j.freed)} freed`; }
+    catch (e) { $("#bkSetMsg").className = "errmsg"; $("#bkSetMsg").textContent = e.message; }
+  }
+});
+$("#bkTabs").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button[data-tab]"); if (!b) return;
+  bk.tab = b.dataset.tab; bk.editing = null; bk.restoreOpen = null;
+  if (bk.tab === "settings") { try { bk.overview = await api("/api/backups"); } catch (e) { /* keep the old one */ } }
+  loadBk();
+});
+$("#bkTarget").addEventListener("change", () => { bk.target = $("#bkTarget").value; bk.editing = null; bk.restoreOpen = null; loadBk(); });
+$("#bkSnap").addEventListener("click", async () => {
+  try { const j = await api(`/api/backups/${bk.target}/snapshot`, {}); alert(j.name ? `Config backup made: ${j.name}` : "There are no config files to back up."); bk.tab = "snaps"; loadBk(); }
+  catch (e) { alert(e.message); }
+});
+$("#bkFull").addEventListener("click", async () => {
+  if (!confirm("Make a full backup now? The server keeps running while it is zipped (the backups made during restarts are taken while it is stopped).")) return;
+  try { await api(`/api/backups/${bk.target}/full`, {}); alert("Full backup started - follow it on the server card."); }
+  catch (e) { alert(e.message); }
+});
+$("#bkClose").addEventListener("click", () => $("#bkDlg").close());
+$("#backupsBtn").addEventListener("click", () => data && openBackups(data.servers[0] && data.servers[0].id));
+
+// ---- servers dialog: add from a template, remove, general settings ------------
+let su = null;
+async function openSetup() {
+  try { su = await api("/api/setup"); } catch (e) { alert(e.message); return; }
+  renderSetup();
+  if (!$("#setupDlg").open) { $("#setupDlg").returnValue = ""; $("#setupDlg").showModal(); }
+}
+function renderSetup() {
+  $("#suList").innerHTML = su.servers.length
+    ? `<table class="bk"><tr><th>Server</th><th>Game</th><th>Install folder</th><th></th></tr>${su.servers.map((s) =>
+      `<tr><td><b>${esc(s.name)}</b> <span class="muted mono">${esc(s.id)}</span>${s.loaded ? "" : ` <span class="chip warn">loads after a restart</span>`}</td>
+       <td>${esc(s.template || "custom")}</td><td class="mono">${esc(s.install_dir || "")}</td>
+       <td class="act"><button type="button" data-cfg="${esc(s.id)}" ${s.loaded ? "" : "disabled"} title="Its config files and backups">Configs</button>
+         <button type="button" class="danger" data-remove="${esc(s.id)}">Remove</button></td></tr>`).join("")}</table>`
+    : `<p class="muted">No servers yet - add one below.</p>`;
+  const keep = $("#suTemplate").value;
+  $("#suTemplate").innerHTML = su.templates.map((t) => `<option value="${esc(t.template)}">${esc(t.title)}</option>`).join("");
+  if (keep && su.templates.some((t) => t.template === keep)) $("#suTemplate").value = keep;
+  renderTemplateFields();
+  const g = su.general;
+  $("#suSteamcmd").value = g.steamcmd || "C:\\steamcmd\\steamcmd.exe";
+  $("#suSteamStatus").innerHTML = g.steamcmd_installing ? `<span class="muted">SteamCMD is being installed...</span>`
+    : g.steamcmd_found ? `<span class="okmsg">SteamCMD found.</span>`
+    : `<span class="errmsg">SteamCMD isn't at that path.</span> ServerDeck needs it to install and update servers - "Download SteamCMD there" gets it from Valve.`;
+  $("#suBackups").value = g.backups_root || "";
+}
+function renderTemplateFields() {
+  const t = su.templates.find((x) => x.template === $("#suTemplate").value) || su.templates[0];
+  if (!t) { $("#suFields").innerHTML = `<p>No templates found in the templates folder.</p>`; return; }
+  const taken = new Set(su.servers.map((s) => s.id));
+  $("#suDesc").textContent = t.description;
+  $("#suFields").innerHTML = t.fields.map((f) => {
+    let v = f.default ?? "";
+    if (f.key === "id") { const base = v; let n = 2; while (taken.has(v)) v = `${base}${n++}`; }
+    const type = f.secret ? "password" : f.type === "int" ? "number" : "text";
+    return `<label>${esc(f.label)}${f.help ? ` <span class="muted">- ${esc(f.help)}</span>` : ""}
+      <input type="${type}" data-field="${esc(f.key)}" value="${esc(v)}" autocomplete="off"></label>`;
+  }).join("");
+}
+$("#suTemplate").addEventListener("change", renderTemplateFields);
+$("#suAdd").addEventListener("click", async () => {
+  const values = {};
+  for (const i of $("#suFields").querySelectorAll("input[data-field]")) values[i.dataset.field] = i.value;
+  $("#suMsg").className = ""; $("#suMsg").textContent = "adding...";
+  try {
+    const j = await api("/api/setup/add", { template: $("#suTemplate").value, values });
+    $("#suMsg").className = "okmsg";
+    $("#suMsg").innerHTML = `<b>${esc(j.name)} added.</b> ${esc(j.note)}<br>Next: press <b>Install</b> on its card (SteamCMD downloads it), then <b>Configs</b> on the card shows its config files.`;
+    setTimeout(() => { if ($("#setupDlg").open) openSetup().catch(() => {}); }, 15000);
+  } catch (e) { $("#suMsg").className = "errmsg"; $("#suMsg").textContent = e.message; }
+});
+$("#suList").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button"); if (!b) return;
+  if (b.dataset.cfg) { $("#setupDlg").close(); return openBackups(b.dataset.cfg); }
+  if (b.dataset.remove) {
+    const s = su.servers.find((x) => x.id === b.dataset.remove);
+    if (!confirm(`Remove ${s.name} from ServerDeck?\n\nIts game files, saves and backups stay on disk - ServerDeck just stops managing it.`)) return;
+    try { const j = await api("/api/setup/remove", { id: s.id }); alert(j.note); setTimeout(() => location.reload(), 15000); }
+    catch (e) { alert(e.message); }
+  }
+});
+$("#suSaveGeneral").addEventListener("click", async () => {
+  try { const j = await api("/api/setup/general", { steamcmd: $("#suSteamcmd").value, backups_root: $("#suBackups").value });
+        $("#suGenMsg").className = "okmsg"; $("#suGenMsg").textContent = j.note; }
+  catch (e) { $("#suGenMsg").className = "errmsg"; $("#suGenMsg").textContent = e.message; }
+});
+$("#suInstallSteam").addEventListener("click", async () => {
+  const folder = ($("#suSteamcmd").value || "C:\\steamcmd\\steamcmd.exe").replace(/\\?steamcmd\.exe$/i, "") || "C:\\steamcmd";
+  if (!confirm(`Download SteamCMD from Valve into ${folder}?`)) return;
+  try { await api("/api/setup/install_steamcmd", { folder }); $("#suGenMsg").className = "okmsg"; $("#suGenMsg").textContent = "downloading - it takes a minute or two (watch Activity), then restart ServerDeck"; }
+  catch (e) { $("#suGenMsg").className = "errmsg"; $("#suGenMsg").textContent = e.message; }
+});
+$("#serversBtn").addEventListener("click", () => openSetup());
+$("#banner").addEventListener("click", (ev) => { if (ev.target.closest("[data-first]")) openSetup(); });
+
+refresh();
+setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+</script>
+</body>
+</html>

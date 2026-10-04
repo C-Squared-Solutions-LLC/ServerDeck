@@ -1,0 +1,42 @@
+{
+  "template": "space_engineers",
+  "title": "Space Engineers",
+  "description": "Space Engineers dedicated server (Steam app 298740), run as the Windows service its configurator creates. Install it here first, then run DedicatedServer64\\SpaceEngineersDedicated.exe once to create your world and the service (\"Install as service\"), and turn on the Remote API in its settings so ServerDeck can show sim speed and warn players.",
+  "fields": [
+    {"key": "id", "label": "Short id", "default": "se", "help": "letters, numbers, - and _"},
+    {"key": "name", "label": "Display name", "default": "Space Engineers"},
+    {"key": "install_dir", "label": "Install folder", "default": "C:\\GameServers\\SpaceEngineers"},
+    {"key": "service", "label": "Windows service name", "default": "SpaceEngineersDedicated", "help": "the instance name you gave it in the configurator"},
+    {"key": "instance_dir", "label": "Instance folder", "default": "C:\\ProgramData\\SpaceEngineersDedicated\\SpaceEngineersDedicated", "help": "holds SpaceEngineers-Dedicated.cfg, Saves and the logs"},
+    {"key": "port", "label": "Game port (UDP)", "type": "int", "default": 27016},
+    {"key": "remote_api_port", "label": "Remote API port", "type": "int", "default": 8080}
+  ],
+  "server": {
+    "id": "{id}",
+    "name": "{name}",
+    "type": "win_service",
+    "kind_label": "Windows service",
+    "service": "{service}",
+    "appid": 298740,
+    "install_dir": "{install_dir}",
+    "steam_install_dir": "{install_dir}",
+    "manifest": "{install_dir}\\steamapps\\appmanifest_298740.acf",
+    "log_glob": "{instance_dir}\\SpaceEngineersDedicated_*.log",
+    "ready_pattern": "Game ready",
+    "fail_pattern": "Error during loading session",
+    "ports": [["udp", "{port}"]],
+    "query": {"host": "127.0.0.1", "port": "{port}"},
+    "start_timeout": 900,
+    "stop_timeout": 180,
+    "firewall": "auto",
+    "backup": {"paths": ["{instance_dir}\\Saves"], "dest": "{backup_root}\\{id}"},
+    "config_files": ["{instance_dir}\\SpaceEngineers-Dedicated.cfg", "{instance_dir}\\Saves\\*\\Sandbox_config.sbc"],
+    "announce": "se_chat",
+    "remote_api": {"port": "{remote_api_port}", "key": "{xml:{instance_dir}\\SpaceEngineers-Dedicated.cfg:RemoteSecurityKey}"},
+    "perf": {"kind": "se_remote"},
+    "health": {"min_sim_speed": 0.8},
+    "schedule": {"enabled": false, "every_hours": 12, "start": "04:00", "warn_minutes": 10},
+    "logs": {"server log": "{instance_dir}\\SpaceEngineersDedicated_*.log"},
+    "defaults": {"keep_online": true, "auto_update": true}
+  }
+}
