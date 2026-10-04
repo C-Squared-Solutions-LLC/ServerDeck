@@ -437,7 +437,8 @@ function card(s) {
       <div class="stat"><div class="k">Players</div><div class="v">${players}</div></div>
       <div class="stat"><div class="k">Uptime</div><div class="v">${s.running ? fmtDur(s.uptime) : "-"}</div></div>
       <div class="stat"><div class="k">CPU</div><div class="v">${s.cpu != null ? s.cpu.toFixed(1) + "%" : "-"}</div></div>
-      <div class="stat"><div class="k">Memory</div><div class="v">${s.running ? fmtBytes(s.mem) : "-"}</div></div>
+      <div class="stat" title="Physical RAM the server occupies right now (working set)"><div class="k">RAM in use</div><div class="v">${s.running && s.mem_ws != null ? fmtBytes(s.mem_ws) : "-"}</div></div>
+      <div class="stat" title="Memory Windows has committed to the server - RAM plus page file (Task Manager's commit size)"><div class="k">RAM reserved</div><div class="v">${s.running ? fmtBytes(s.mem) : "-"}</div></div>
     </div>
     <div class="row">build <b>${esc(s.installed_build || "?")}</b>${upd ? " · " + upd : ""} · ${checked}</div>
     ${mods || sidecar || plugins ? `<div class="row">${mods} ${plugins} ${sidecar}</div>` : ""}

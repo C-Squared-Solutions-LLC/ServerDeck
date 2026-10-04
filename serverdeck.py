@@ -713,10 +713,11 @@ class Server:
         if pid:
             ps = winproc.process_stats(pid)
             if ps:
-                created, cpu, private, _ws = ps
+                created, cpu, private, ws = ps
                 st["uptime"] = max(0, time.time() - created)
                 st["cpu"] = self.cpu.percent(pid, cpu)
-                st["mem"] = private
+                st["mem"] = private        # reserved: committed memory (RAM + page file), Task Manager's "commit size"
+                st["mem_ws"] = ws          # in use: physical RAM it occupies right now (working set)
         st["ports"] = [{"proto": p, "port": n, "up": ports.get((p, n)) == pid if pid else False}
                        for p, n in self.cfg.get("ports", [])]
         return st
