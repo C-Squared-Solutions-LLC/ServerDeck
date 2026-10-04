@@ -53,6 +53,56 @@ create your world and its Windows service, and enable the Remote API in its sett
 Run it without the installer: `python serverdeck.py` from an elevated prompt (it can show status without
 admin rights, but not control servers).
 
+## Using ServerDeck
+
+Open `http://127.0.0.1:8787` (the desktop shortcut). Each server has a card; the buttons along the top
+work across servers.
+
+**On a server's card**
+- **Start / Stop** - Start also means "keep it online" (it is brought back if it crashes); Stop keeps it
+  off. The **keep online** and **auto-update** switches change that without starting or stopping it.
+- **Restart** - now, or after warning players for 1-30 minutes (skipped if nobody is on).
+- **Update now** (**Install** for a new server) - backs it up, runs SteamCMD with file validation,
+  re-applies its mods, starts it again if it was running. With auto-update on, ServerDeck checks
+  every 30 minutes and does this by itself.
+- **Schedule** - restart every N hours from a start time, warning players N minutes ahead.
+- **Logs** (or **Logs & console**) - every log of that server: search, errors-only filter, live follow,
+  download. Servers with RCON get a command line under the log.
+- **Configs** - its config files and backups (below).
+- The chips show players, server FPS or sim speed, open ports, mods, the sidecar and upcoming events.
+  A red card (and a red page) means it is struggling - the reason is written on it.
+
+**Configs & backups**
+- **Config files** - every file in the server's `config_files` list: **View / edit** (saving backs the
+  files up first) or **Download**. Restart the server afterwards; servers read their config at start.
+- **Config backups** - made automatically before every start, restart, update, edit and restore (only
+  when something changed), every day, and with **Back up configs now**. **Restore...** lets you pick
+  files and optionally stops and starts the server around it. A restore backs up the current files
+  first, so it can be undone.
+- **Full backups** - worlds + configs, made before restarts and updates (**Full backup now** makes one
+  any time). **Restore...** stops the server, moves the current folders aside
+  (`<folder>.before-restore-<time>`, nothing is deleted), unpacks the backup and starts it again -
+  players lose what happened since that backup.
+- **Retention** - keep backups for N days; the newest few of each kind always stay.
+
+**Servers** - add a server from a template, remove one (its files stay on disk), set the SteamCMD path
+(or download SteamCMD) and the backups folder. ServerDeck restarts itself to load changes.
+
+**Community**
+- **Discord**: paste a channel webhook URL (channel settings > Integrations > Webhooks > New Webhook >
+  Copy Webhook URL) and press Connect. Choose what gets posted - restarts and updates, struggling alarms,
+  events, quest completions, the weekly leaderboard - and for which servers.
+- **Announcement**: write a post (Discord formatting works), optionally ping @everyone, press Post.
+- **Blood Moon** (SCUM): turn it on and pick the night; ServerDeck restarts SCUM into the horde settings
+  and back out at the end, warning players before.
+- **Survival tips** (SCUM): rotating messages in game every N minutes - edit the list in config.json.
+
+**Restart ServerDeck** reloads ServerDeck itself (game servers keep running); it waits if a server is in
+the middle of something. The **Activity** list at the bottom shows everything ServerDeck did.
+
+Handy links: `#logs=<server>`, `#backups=<server>`, `#servers`, `#community` after the address, e.g.
+`http://127.0.0.1:8787/#backups=scum`.
+
 ## Config
 
 Everything lives in `config.json` (created on first start, edited by the Servers dialog). Each server is
