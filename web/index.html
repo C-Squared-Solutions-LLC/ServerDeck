@@ -499,6 +499,7 @@ async function refresh() {
   const m = !openedFromHash && location.hash.match(/^#logs(?:=([\w-]+)(?::(.+))?)?$/);
   if (m) { openedFromHash = true; openLogs(m[1], m[2] && decodeURIComponent(m[2])); }
   if (!openedFromHash && location.hash === "#community") { openedFromHash = true; openCommunity(); }
+  if (!openedFromHash && location.hash === "#servers") { openedFromHash = true; openSetup(); }
   const bm = !openedFromHash && location.hash.match(/^#backups(?:=([\w-]+))?$/);
   if (bm) { openedFromHash = true; openBackups(bm[1] || (data.servers[0] && data.servers[0].id)); }
 }
