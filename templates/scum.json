@@ -19,6 +19,7 @@
     "args": ["-log"],
     "ports": [["udp", 7777], ["udp", 27015], ["tcp", 7779]],
     "query": null,
+    "name_setting": {"file": "SCUM\\Saved\\Config\\WindowsServer\\ServerSettings.ini", "key": "scum.ServerName"},
     "start_timeout": 600,
     "stop_method": "terminate",
     "firewall": "auto",

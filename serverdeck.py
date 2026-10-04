@@ -758,6 +758,24 @@ class Server:
             # No Steam query (SCUM): use the player count from its own log.
             st.update(players=self.perf["players"], humans=self.perf["players"], bots=0,
                       max_players=self.perf.get("max_players"))
+        if not st.get("server_name") and self.cfg.get("name_setting"):
+            # No Steam query to ask (SCUM): show the name from the server's own settings file.
+            st["server_name"] = self._setting(self.cfg["name_setting"])
+
+    def _setting(self, ref):
+        """{"file": <ini, relative to install_dir or absolute>, "key": "scum.ServerName"} -> its value
+        (re-read only when the file changes)."""
+        path = Path(self.cfg.get("install_dir", "")) / ref["file"]
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return None
+        cache = getattr(self, "_setting_cache", {})
+        if cache.get(ref["key"], (None,))[0] != mtime:
+            m = re.search(r"^%s=(.*)$" % re.escape(ref["key"]), path.read_text(encoding="utf-8-sig", errors="replace"), re.M)
+            cache[ref["key"]] = (mtime, m.group(1).strip() if m else None)
+            self._setting_cache = cache
+        return cache[ref["key"]][1]
 
     def log_sources(self):
         """Ordered {label: file}: the server's own logs (newest file for globs),

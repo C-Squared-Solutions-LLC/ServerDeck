@@ -112,6 +112,7 @@ one entry - the templates in `templates/` show every option. The most useful one
 |---|---|
 | `install_dir`, `exe`, `args` | where it is and how it starts (`{bat:file:VAR}`, `{toml:file:key}`, `{xml:file:Tag}` read secrets from other files) |
 | `ports`, `query` | ports that must be listening, Steam query port - "online" needs all of them |
+| `name_setting` | for servers without a Steam query (SCUM): where to read the server name shown on the card, e.g. `{"file": "...\\ServerSettings.ini", "key": "scum.ServerName"}` |
 | `rcon` | `{"kind": "source" or "web", "port", "password"}` for console, warnings and clean stops |
 | `schedule` | default restart cycle (`every_hours`, `start`, `warn_minutes`) - change it in the UI |
 | `config_files` | globs (relative to `install_dir` or absolute) shown under Configs and backed up |
