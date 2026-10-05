@@ -6,6 +6,7 @@ Hooks are referenced from config.json as [name, *args] under "pre_start" and
 """
 import json
 import re
+import secrets
 import shutil
 import tempfile
 import time
@@ -292,6 +293,127 @@ def scum_notifications(server, restart_minutes, warn_minutes):
     return True
 
 
+# --------------------------------------------------------------------------
+# Palworld: PalWorldSettings.ini
+# --------------------------------------------------------------------------
+
+PAL_INI = Path("Pal") / "Saved" / "Config" / "WindowsServer" / "PalWorldSettings.ini"
+
+
+def _read_text(path):
+    """(text, encoding) of a settings file, line endings untouched (UTF-16 if it has that BOM)."""
+    raw = path.read_bytes()
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return raw.decode("utf-16"), "utf-16"
+    return raw.decode("utf-8-sig", errors="replace"), "utf-8"
+
+
+def _pal_items(body):
+    """'A=1,B="x,y",C=(P,Q)' -> [["A", "1"], ["B", '"x,y"'], ["C", "(P,Q)"]]: commas inside quotes
+    or parentheses (CrossplayPlatforms=(Steam,Xbox,...)) don't split."""
+    items, depth, quoted, start = [], 0, False, 0
+    for i, ch in enumerate(body + ","):
+        if ch == '"':
+            quoted = not quoted
+        elif quoted:
+            continue
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            part = body[start:i].strip()
+            if part:
+                key, _, value = part.partition("=")
+                items.append([key.strip(), value])
+            start = i + 1
+    return items
+
+
+def palworld_settings(server, changed=False, force=False):
+    """Palworld reads PalWorldSettings.ini - every setting on one "OptionSettings=(...)" line - which
+    stays empty until someone copies DefaultPalWorldSettings.ini into it. Create it on the first start
+    (server name, port and player cap from the Servers dialog) and before every start keep the REST API
+    on that ServerDeck uses for player counts, warnings and clean stops (port + AdminPassword)."""
+    install = Path(server.cfg["install_dir"])
+    ini, api, first = install / PAL_INI, server.cfg["rest_api"], server.cfg.get("palworld", {})
+    password = server.mgr.secret(api["password"])
+    if not password or '"' in password:
+        raise ValueError("the AdminPassword in config.json must be set and can't contain a double quote")
+    want = {"RESTAPIEnabled": "True", "RESTAPIPort": str(int(api["port"])), "AdminPassword": f'"{password}"'}
+    text, enc = _read_text(ini) if ini.exists() else ("", "utf-8")
+    if "OptionSettings=(" not in text:
+        default = install / "DefaultPalWorldSettings.ini"
+        text, enc = _read_text(default) if default.exists() else ("", "utf-8")
+        if "OptionSettings=(" not in text:
+            text = "[/Script/Pal.PalGameWorldSettings]\r\nOptionSettings=()\r\n"
+        name = str(first.get("server_name") or "Palworld Server").replace('"', "'")
+        want.update(ServerName=f'"{name}"', PublicPort=str(int(first.get("port") or 8211)),
+                    ServerPlayerMaxNum=str(int(first.get("max_players") or 32)))
+        server.note("PalWorldSettings.ini created from DefaultPalWorldSettings.ini")
+    m = re.search(r"^\s*OptionSettings=\((.*)\)\s*$", text, re.M)
+    items = _pal_items(m.group(1))
+    index = {k: i for i, (k, _) in enumerate(items)}
+    for k, v in want.items():
+        if k in index:
+            items[index[k]][1] = v
+        else:
+            items.append([k, v])
+    new = text[:m.start(1)] + ",".join(f"{k}={v}" for k, v in items) + text[m.end(1):]
+    if new != text or not ini.exists():
+        ini.parent.mkdir(parents=True, exist_ok=True)
+        ini.write_bytes(new.encode(enc))
+
+
+# --------------------------------------------------------------------------
+# Enshrouded: enshrouded_server.json
+# --------------------------------------------------------------------------
+
+# The game's own groups and permissions; the password a player joins with picks the group.
+ENSHROUDED_GROUPS = (
+    ("Admin", dict(canKickBan=True, canAccessInventories=True, canEditWorld=True, canEditBase=True,
+                   canExtendBase=True)),
+    ("Friend", dict(canKickBan=False, canAccessInventories=True, canEditWorld=True, canEditBase=True,
+                    canExtendBase=False)),
+    ("Guest", dict(canKickBan=False, canAccessInventories=False, canEditWorld=True, canEditBase=False,
+                   canExtendBase=False)),
+    ("Visitor", dict(canKickBan=False, canAccessInventories=False, canEditWorld=False, canEditBase=False,
+                     canExtendBase=False)),
+)
+
+
+def enshrouded_config(server, changed=False, force=False):
+    """Enshrouded keeps its settings in enshrouded_server.json, and the one it writes itself on the
+    first start has no passwords. So write it before the first start - name, port, slots and group
+    passwords (Guest's may stay empty: then anyone can join as a guest) - and afterwards only keep the
+    port in step with ServerDeck's firewall rule and query; edit the rest under Configs."""
+    c = server.cfg.get("enshrouded", {})
+    path = Path(server.cfg["install_dir"]) / "enshrouded_server.json"
+    port = int(c.get("port") or 15637)
+    if not path.exists():
+        pw = {name: server.mgr.secret(c.get(f"{name.lower()}_password") or "") for name, _ in ENSHROUDED_GROUPS}
+        for name in ("Admin", "Friend", "Visitor"):
+            pw[name] = pw[name] or secrets.token_urlsafe(12)
+        data = {"name": c.get("server_name") or "Enshrouded Server", "saveDirectory": "./savegame",
+                "logDirectory": "./logs", "ip": "0.0.0.0", "queryPort": port, "slotCount": int(c.get("slots") or 16),
+                "gameSettingsPreset": "Default",
+                "userGroups": [{"name": name, "password": pw[name], **perms, "reservedSlots": 0}
+                               for name, perms in ENSHROUDED_GROUPS]}
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        server.note("enshrouded_server.json written: name, port, slots and group passwords")
+        return
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    if data.get("queryPort") != port:
+        data["queryPort"] = port
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        server.note(f"enshrouded_server.json: queryPort set to {port}, the port ServerDeck opened and queries")
+    for g in data.get("userGroups", []):
+        pw = str(g.get("password") or "")
+        if g.get("canKickBan") and (not pw or re.fullmatch(r"[A-Za-z]*X{6,}", pw)):
+            server.mgr.events.add("warn", server.id, f"enshrouded_server.json: the {g.get('name')} group can "
+                                  "kick and ban but has no real password - set one under Configs")
+
+
 HOOKS = {
     "remove": remove,
     "remove_without_avx2": remove_without_avx2,
@@ -300,5 +422,7 @@ HOOKS = {
     "cs2_addons": cs2_addons,
     "rust_oxide": rust_oxide,
     "rust_oxide_present": rust_oxide_present,
+    "palworld_settings": palworld_settings,
+    "enshrouded_config": enshrouded_config,
 }
 MODS = {"cs2": cs2_mods, "rust": rust_mods}

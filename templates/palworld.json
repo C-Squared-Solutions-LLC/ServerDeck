@@ -1,0 +1,43 @@
+{
+  "template": "palworld",
+  "title": "Palworld",
+  "description": "Palworld dedicated server (Steam app 2394010), listed as a community server. On the first start ServerDeck creates PalWorldSettings.ini (edit it under Configs) and it keeps Palworld's REST API switched on - only this PC can reach it, its port is never opened - for player counts, server FPS, restart warnings in chat and saving the world on every stop. Pocketpair recommends 16 GB of RAM for the server alone.",
+  "fields": [
+    {"key": "id", "label": "Short id", "default": "palworld", "help": "letters, numbers, - and _"},
+    {"key": "name", "label": "Display name", "default": "Palworld"},
+    {"key": "install_dir", "label": "Install folder", "default": "C:\\GameServers\\Palworld"},
+    {"key": "server_name", "label": "Server name (in the community list)", "default": "My Palworld Server", "help": "written to PalWorldSettings.ini on the first start - change it there later"},
+    {"key": "port", "label": "Game port (UDP)", "type": "int", "default": 8211},
+    {"key": "max_players", "label": "Max players", "type": "int", "default": 32},
+    {"key": "rest_port", "label": "REST API port (TCP, this PC only)", "type": "int", "default": 8212},
+    {"key": "admin_password", "label": "Admin password", "default": "", "secret": true, "generate": true, "help": "for /AdminPassword in game and ServerDeck's REST API login; left empty, a random one is made"}
+  ],
+  "server": {
+    "id": "{id}",
+    "name": "{name}",
+    "type": "win_process",
+    "appid": 2394010,
+    "install_dir": "{install_dir}",
+    "steam_install_dir": "{install_dir}",
+    "manifest": "{install_dir}\\steamapps\\appmanifest_2394010.acf",
+    "exe": "Pal\\Binaries\\Win64\\PalServer-Win64-Shipping-Cmd.exe",
+    "args": ["Pal", "-port={port}", "-players={max_players}", "-publiclobby"],
+    "ports": [["udp", "{port}"]],
+    "query": null,
+    "rest_api": {"port": "{rest_port}", "password": "{admin_password}"},
+    "palworld": {"server_name": "{server_name}", "port": "{port}", "max_players": "{max_players}"},
+    "stop_method": "palworld_rest",
+    "stop_timeout": 120,
+    "start_timeout": 900,
+    "firewall": "auto",
+    "announce": "palworld_rest",
+    "perf": {"kind": "palworld_rest"},
+    "health": {"min_fps_busy": 20, "startup_grace": 900},
+    "schedule": {"enabled": false, "every_hours": 12, "start": "06:00", "warn_minutes": 10},
+    "pre_start": [["palworld_settings"]],
+    "backup": {"paths": ["Pal\\Saved\\SaveGames", "Pal\\Saved\\Config\\WindowsServer"], "dest": "{backup_root}\\{id}"},
+    "config_files": ["Pal/Saved/Config/WindowsServer/*.ini"],
+    "logs": {"server log": "{install_dir}\\Pal\\Saved\\Logs\\*.log"},
+    "defaults": {"keep_online": true, "auto_update": true}
+  }
+}

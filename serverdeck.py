@@ -38,6 +38,7 @@ import a2s  # noqa: E402
 import backups  # noqa: E402
 import community  # noqa: E402
 import hooks  # noqa: E402
+import palworld  # noqa: E402
 import setupwiz  # noqa: E402
 import rcon as rconlib  # noqa: E402
 import se_api  # noqa: E402
@@ -374,7 +375,7 @@ class Server:
     def can_announce(self):
         """Can players be warned live (chat broadcast)?  SCUM can't, but its own
         Notifications.json warns them ahead of scheduled restarts."""
-        return self.cfg.get("announce") in ("rcon_say", "se_chat")
+        return self.cfg.get("announce") in ("rcon_say", "se_chat", "palworld_rest")
 
     def _announce(self, msg):
         kind = self.cfg.get("announce")
@@ -384,6 +385,9 @@ class Server:
             elif kind == "se_chat":
                 api = self.cfg["remote_api"]
                 se_api.chat(api["port"], self.mgr.secret(api["key"]), msg)
+            elif kind == "palworld_rest":
+                api = self.cfg["rest_api"]
+                palworld.announce(api["port"], self.mgr.secret(api["password"]), msg)
         except Exception as e:
             self.mgr.events.add("warn", self.id, f"could not warn players: {e}")
 
@@ -633,6 +637,14 @@ class Server:
                 ini = Path(self.cfg["install_dir"]) / self.cfg["perf"]["settings"]
                 cap = re.search(r"^scum\.MaxPlayers=(\d+)", ini.read_text(encoding="utf-8", errors="replace"), re.M)
                 self.perf["max_players"] = int(cap.group(1)) if cap else None
+            elif kind == "palworld_rest":
+                api = self.cfg["rest_api"]
+                password = self.mgr.secret(api["password"])
+                d = palworld.metrics(api["port"], password)
+                # The name only changes with a restart (check_perf clears perf while it's offline).
+                name = self.perf.get("server_name") or palworld.info(api["port"], password).get("servername")
+                self.perf = {"fps": d.get("serverfps"), "players": d.get("currentplayernum"),
+                             "max_players": d.get("maxplayernum"), "server_name": name, "at": time.time()}
         except Exception as e:
             log.info("perf %s: %s", self.id, e)
 
@@ -756,12 +768,14 @@ class Server:
         if self.sidecar:
             st["sidecar"] = self.sidecar.status(ports)
         if st.get("players") is None and self.perf.get("players") is not None and st.get("running"):
-            # No Steam query (SCUM): use the player count from its own log.
+            # No Steam query (SCUM, Palworld): use the player count the server reports itself.
             st.update(players=self.perf["players"], humans=self.perf["players"], bots=0,
                       max_players=self.perf.get("max_players"))
         if not st.get("server_name") and self.cfg.get("name_setting"):
             # No Steam query to ask (SCUM): show the name from the server's own settings file.
             st["server_name"] = self._setting(self.cfg["name_setting"])
+        if not st.get("server_name") and self.perf.get("server_name") and st.get("running"):
+            st["server_name"] = self.perf["server_name"]     # Palworld: from its REST API
 
     def _setting(self, ref):
         """{"file": <ini, relative to install_dir or absolute>, "key": "scum.ServerName"} -> its value
@@ -888,6 +902,9 @@ class WinProcessServer(Server):
                 return
             if timeout:
                 self.mgr.events.add("warn", self.id, f"no clean exit after {timeout}s - terminating")
+        elif method == "palworld_rest":
+            if self._stop_palworld(pid, timeout):
+                return
         elif method == "ctrl_c":
             if winproc.send_ctrl_c(pid) and winproc.wait_exit(pid, timeout):
                 self.note("stopped cleanly")
@@ -899,6 +916,27 @@ class WinProcessServer(Server):
         winproc.wait_exit(pid, 30)
         if method == "terminate":
             self.note("process terminated")
+
+    def _stop_palworld(self, pid, timeout):
+        """Save the world and shut down over Palworld's REST API. True once the process is gone."""
+        api = self.cfg["rest_api"]
+        try:
+            password = self.mgr.secret(api["password"])
+            palworld.save(api["port"], password)
+            palworld.shutdown(api["port"], password, 3, "Server shutting down now.")
+        except Exception as e:
+            # API off or a different AdminPassword: Unreal's own Ctrl+C quit saves too.
+            self.mgr.events.add("warn", self.id, f"REST API shutdown not possible ({e}) - trying Ctrl+C")
+            if winproc.send_ctrl_c(pid) and winproc.wait_exit(pid, timeout):
+                self.note("stopped cleanly (Ctrl+C)")
+                return True
+            self.mgr.events.add("warn", self.id, "no clean exit - terminating")
+            return False
+        if winproc.wait_exit(pid, timeout):
+            self.note("stopped cleanly (world saved over the REST API)")
+            return True
+        self.mgr.events.add("warn", self.id, f"no clean exit after {timeout}s - terminating")
+        return False
 
 
 class WinServiceServer(Server):

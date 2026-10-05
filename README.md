@@ -5,7 +5,7 @@ updates (and re-applies mods afterwards), restarts them on a schedule with in-ga
 their configs and worlds - with a restore button - and tells your Discord what's happening.
 
 Built-in templates: **SCUM**, **Space Engineers**, **Counter-Strike 2** (Metamod + CounterStrikeSharp),
-**Rust** (Oxide). Pure Python standard library - nothing to `pip install`.
+**Rust** (Oxide), **Palworld**, **Enshrouded**. Pure Python standard library - nothing to `pip install`.
 
 ## What it does
 
@@ -16,7 +16,8 @@ Built-in templates: **SCUM**, **Space Engineers**, **Counter-Strike 2** (Metamod
 - **Updates with SteamCMD** on its own, re-installs Metamod/CounterStrikeSharp (CS2) or Oxide (Rust)
   after game updates, and protects config files a "validate" would reset.
 - **Restart schedules** (e.g. every 6 h) with countdown warnings in chat (CS2/Rust over RCON, Space
-  Engineers over its Remote API, SCUM through its own notification file).
+  Engineers over its Remote API, Palworld over its REST API, SCUM through its own notification file;
+  Enshrouded has no way to message players).
 - **"Struggling" alarm**: the page turns red when a server stops answering or its tick rate drops, or
   the PC runs out of RAM/CPU.
 - **Configs & backups**: a link to every server's config files (view, edit, download). Config files are
@@ -49,6 +50,11 @@ install it).
 
 Space Engineers is different: install it, then run `DedicatedServer64\SpaceEngineersDedicated.exe` once to
 create your world and its Windows service, and enable the Remote API in its settings.
+
+Palworld and Enshrouded need nothing extra - ServerDeck writes their settings file before the first start:
+Palworld's `PalWorldSettings.ini` (name, port, player cap, and its REST API switched on for this PC only),
+Enshrouded's `enshrouded_server.json` (name, port, slots and a password per group). Change them later under
+**Configs**. Palworld alone wants about 16 GB of RAM.
 
 Run it without the installer: `python serverdeck.py` from an elevated prompt (it can show status without
 admin rights, but not control servers).
@@ -114,6 +120,8 @@ one entry - the templates in `templates/` show every option. The most useful one
 | `ports`, `query` | ports that must be listening, Steam query port - "online" needs all of them |
 | `name_setting` | for servers without a Steam query (SCUM): where to read the server name shown on the card, e.g. `{"file": "...\\ServerSettings.ini", "key": "scum.ServerName"}` |
 | `rcon` | `{"kind": "source" or "web", "port", "password"}` for console, warnings and clean stops |
+| `rest_api` | Palworld: `{"port", "password"}` of its REST API - players, server FPS, warnings, save + clean stop (`stop_method`/`announce`/`perf` `palworld_rest`) |
+| `stop_method` | `rcon` (quit), `ctrl_c`, `palworld_rest` or `terminate` (the default) |
 | `schedule` | default restart cycle (`every_hours`, `start`, `warn_minutes`) - change it in the UI |
 | `config_files` | globs (relative to `install_dir` or absolute) shown under Configs and backed up |
 | `backup` | `{"paths": [...], "exclude": [...], "dest": ...}` full backups before restarts/updates |
@@ -148,8 +156,8 @@ then press **Restart ServerDeck** in the page.
 | `backups.py` | config/full backups, restore, retention |
 | `community.py` | Discord feed, events (Blood Moon), SCUM notifications and tips |
 | `setupwiz.py`, `templates/` | adding and removing servers |
-| `hooks.py` | per-game maintenance (mods after updates, SCUM notifications) |
-| `steam.py`, `a2s.py`, `rcon.py`, `se_api.py`, `winproc.py` | SteamCMD, Steam queries, RCON, Space Engineers API, Windows process control |
+| `hooks.py` | per-game maintenance (mods after updates, SCUM notifications, Palworld/Enshrouded settings files) |
+| `steam.py`, `a2s.py`, `rcon.py`, `se_api.py`, `palworld.py`, `winproc.py` | SteamCMD, Steam queries, RCON, Space Engineers and Palworld APIs, Windows process control |
 | `install.ps1` | installer / uninstaller |
 
 ## License

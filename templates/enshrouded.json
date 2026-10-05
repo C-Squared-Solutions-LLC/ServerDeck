@@ -1,0 +1,42 @@
+{
+  "template": "enshrouded",
+  "title": "Enshrouded",
+  "description": "Enshrouded dedicated server (Steam app 2278520) - one UDP port. Before the first start ServerDeck writes enshrouded_server.json with passwords for the Admin and Friend groups; leave the Guest password empty and anyone can join as a guest (explore and dig, but no bases or chests). Edit everything else under Configs. Enshrouded has no RCON, so players can't be warned before a restart; stops use Ctrl+C, which saves the world.",
+  "fields": [
+    {"key": "id", "label": "Short id", "default": "enshrouded", "help": "letters, numbers, - and _"},
+    {"key": "name", "label": "Display name", "default": "Enshrouded"},
+    {"key": "install_dir", "label": "Install folder", "default": "C:\\GameServers\\Enshrouded"},
+    {"key": "server_name", "label": "Server name (in the server list)", "default": "My Enshrouded Server", "help": "written to enshrouded_server.json on the first start - change it there later"},
+    {"key": "port", "label": "Port (UDP)", "type": "int", "default": 15637},
+    {"key": "slots", "label": "Max players", "type": "int", "default": 16, "help": "up to 16"},
+    {"key": "admin_password", "label": "Admin password", "default": "", "secret": true, "generate": true, "help": "join with it to kick/ban and change anything; left empty, a random one is made"},
+    {"key": "friend_password", "label": "Friend password", "default": "", "secret": true, "generate": true, "help": "join with it to build in bases and open chests; left empty, a random one is made"},
+    {"key": "guest_password", "label": "Guest password", "default": "", "secret": true, "help": "optional - left empty, anyone can join as a guest"}
+  ],
+  "server": {
+    "id": "{id}",
+    "name": "{name}",
+    "type": "win_process",
+    "appid": 2278520,
+    "install_dir": "{install_dir}",
+    "steam_install_dir": "{install_dir}",
+    "manifest": "{install_dir}\\steamapps\\appmanifest_2278520.acf",
+    "exe": "enshrouded_server.exe",
+    "args": [],
+    "ports": [["udp", "{port}"]],
+    "query": {"port": "{port}"},
+    "enshrouded": {"server_name": "{server_name}", "port": "{port}", "slots": "{slots}",
+                   "admin_password": "{admin_password}", "friend_password": "{friend_password}",
+                   "guest_password": "{guest_password}"},
+    "stop_method": "ctrl_c",
+    "stop_timeout": 120,
+    "start_timeout": 900,
+    "firewall": "auto",
+    "schedule": {"enabled": false, "every_hours": 12, "start": "06:00", "warn_minutes": 0},
+    "pre_start": [["enshrouded_config"]],
+    "backup": {"paths": ["savegame", "enshrouded_server.json"], "dest": "{backup_root}\\{id}"},
+    "config_files": ["enshrouded_server.json"],
+    "logs": {"server log": "{install_dir}\\logs\\*.log"},
+    "defaults": {"keep_online": true, "auto_update": true}
+  }
+}
