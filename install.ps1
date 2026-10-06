@@ -64,8 +64,11 @@ $atBoot.Delay = 'PT30S'
 $watchdog = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) -RepetitionInterval (New-TimeSpan -Minutes 5)
 # S4U: runs whether or not you are logged on, without storing your password.
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Highest
+# Priority 4 = normal. Task Scheduler's default (7) runs tasks with lower CPU, disk and memory
+# priority, and the game servers ServerDeck starts would inherit it.
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
-    -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+    -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
+    -Priority 4
 Register-ScheduledTask -TaskName 'ServerDeck' -Description "Game server manager ($here). UI: http://127.0.0.1:8787" `
     -Action $action -Trigger @($atBoot, $watchdog) -Principal $principal -Settings $settings -Force | Out-Null
 Start-ScheduledTask -TaskName 'ServerDeck'

@@ -390,8 +390,11 @@ function card(s) {
     ? `${s.humans ?? s.players}/${s.max_players}${s.bots ? ` <small>+${s.bots} bots</small>` : ""}`
     : (s.running ? "n/a" : "-");
   const ports = (s.ports || []).map((p) => `<span class="chip ${s.running ? (p.up ? "up" : "down") : ""}">${p.proto}/${p.port}</span>`).join(" ");
+  const held = s.update_hold && s.auto_update
+    ? ` - waits for an empty server or ${s.update_hold.restart ? `the ${fmtClock(s.update_hold.until)} restart` : fmtClock(s.update_hold.until)}`
+    : "";
   const upd = s.update_available
-    ? `<span class="upd">update available${s.mods_behind && s.mods_behind.length && !(+s.latest_build > +s.installed_build) ? " (" + s.mods_behind.join(", ") + ")" : " → " + esc(s.latest_build)}</span>`
+    ? `<span class="upd">update available${s.mods_behind && s.mods_behind.length && !(+s.latest_build > +s.installed_build) ? " (" + s.mods_behind.join(", ") + ")" : " → " + esc(s.latest_build)}${held}</span>`
     : s.latest_build && s.installed_build ? `<span class="ok">up to date</span>` : "";
   const checked = s.latest_checked ? `checked ${fmtAgo(s.latest_checked)}` : `<span class="muted">not checked yet</span>`;
   const mods = Object.entries(s.mods || {}).map(([k, v]) => {

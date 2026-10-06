@@ -342,6 +342,7 @@ class Server:
         self.health = {"ok": True, "reasons": []}
         self.bad_since = None
         self.good_since = None
+        self.empty_since = None        # while an update waits for the server to empty
 
     # ---- restart schedule -----------------------------------------------
     def schedule(self):
@@ -824,6 +825,7 @@ class Server:
             keep_online=self.keep_online(), auto_update=self.auto_update(),
             installed_build=self.installed_build(), latest_build=self.latest_build(),
             update_available=self.update_available(), mods_behind=self.mods_behind(),
+            update_hold=self.mgr.state.get(self.id, "update_hold"),
             mods_latest=self.mgr.state.get(self.id, "mods_latest") or {},
             latest_checked=self.mgr.state.get(self.id, "latest_checked"),
             job=self.job, held=self.held_until > time.time(), pending_stop=self.pending_stop,
@@ -1112,6 +1114,8 @@ class Manager:
                         s.pending_stop = False
                         s.run_job("stop", s.job_stop)
                     self._keep_alive(s)
+                    if self.admin:
+                        self._release_held_update(s)
                     if s.sidecar and self.admin:
                         s.sidecar.reconcile()
                     if self.admin and not s.busy():
@@ -1202,24 +1206,72 @@ class Manager:
                     if s.auto_update() and s.update_available() and not s.busy() and self.can_control(s):
                         # Don't retry the very same update more than every 6 h:
                         # a broken download must not bounce a live server every 30 min.
-                        target = f"{s.latest_build()}|{json.dumps(self.state.get(s.id, 'mods_latest'))}"
+                        target = self._update_target(s)
                         last = self.state.get(s.id, "auto_update_attempt") or {}
                         if last.get("target") == target and time.time() - last.get("t", 0) < 6 * 3600:
                             continue
-                        self.state.set(s.id, auto_update_attempt={"target": target, "t": time.time(), "done": False})
-                        what = (f"build {s.installed_build()} -> {s.latest_build()}" if s.game_behind()
-                                else "mods: " + ", ".join(s.mods_behind()))
-                        self.events.add("info", s.id, f"update available ({what}) - updating")
-
-                        def auto_update(s=s, target=target):
-                            try:
-                                s.job_update()
-                            finally:   # finished or failed: the 6 h backoff applies
-                                self.state.set(s.id, auto_update_attempt={"target": target, "t": time.time(),
-                                                                          "done": True})
-                        s.run_job("auto-update", auto_update)
+                        if not self._hold_update(s, target):
+                            self._start_auto_update(s, target)
         finally:
             self.check_lock.release()
+
+    def _update_target(self, s):
+        return f"{s.latest_build()}|{json.dumps(self.state.get(s.id, 'mods_latest'))}"
+
+    def _start_auto_update(self, s, target):
+        self.state.set(s.id, auto_update_attempt={"target": target, "t": time.time(), "done": False}, update_hold=None)
+        what = (f"build {s.installed_build()} -> {s.latest_build()}" if s.game_behind()
+                else "mods: " + ", ".join(s.mods_behind()))
+        self.events.add("info", s.id, f"update available ({what}) - updating")
+
+        def auto_update():
+            try:
+                s.job_update()
+            finally:   # finished or failed: the 6 h backoff applies
+                self.state.set(s.id, auto_update_attempt={"target": target, "t": time.time(), "done": True})
+        s.run_job("auto-update", auto_update)
+
+    def _hold_update(self, s, target):
+        """Players on a server that can't warn them in game (SCUM, Enshrouded) would be dropped by an
+        update without a word. So hold it until the server is empty (_release_held_update) or its next
+        scheduled restart, which warns them and installs the update on the way - 6 h at most without a
+        schedule. True while held."""
+        if s.can_announce() or not s.is_running() or not s.status.get("humans"):
+            return False
+        hold, now = self.state.get(s.id, "update_hold") or {}, time.time()
+        if hold.get("target") != target:
+            hold = {"target": target, "since": now}
+        nxt = s.next_restart()
+        until = nxt.timestamp() if nxt else hold["since"] + 6 * 3600
+        if not nxt and now >= until:
+            return False
+        if hold.get("until") != until:              # new, or its restart slot passed without one
+            hold.update(until=until, restart=bool(nxt))
+            self.state.set(s.id, update_hold=hold)
+            when = f"its {nxt:%H:%M} restart" if nxt else f"{datetime.fromtimestamp(until):%H:%M} at the latest"
+            self.events.add("info", s.id, f"update available - {s.status['humans']} player(s) on and this server "
+                                          f"can't warn them in game: waiting until it's empty or {when}")
+        return True
+
+    def _release_held_update(self, s):
+        """Start a held update once the server has been empty for a minute (or isn't running)."""
+        hold = self.state.get(s.id, "update_hold")
+        if not hold:
+            return
+        if not (s.auto_update() and s.update_available()):
+            self.state.set(s.id, update_hold=None)   # installed by a restart, or auto-update turned off
+            return
+        if s.busy() or not self.can_control(s):
+            return
+        if s.is_running() and s.status.get("humans"):
+            s.empty_since = None
+            return
+        s.empty_since = s.empty_since or time.time()
+        if s.is_running() and time.time() - s.empty_since < 60:
+            return
+        s.empty_since = None
+        self.events.add("info", s.id, "nobody is on any more - installing the update that was waiting")
+        self._start_auto_update(s, self._update_target(s))
 
     def schedule_loop(self):
         """Fire each server's restart cycle. Servers that can warn players live
@@ -1524,6 +1576,13 @@ def main():
                                                    encoding="utf-8")
     logging.basicConfig(level=logging.INFO, handlers=[handler],
                         format="%(asctime)s %(levelname)s %(threadName)s %(message)s")
+    try:
+        before, after = winproc.normal_priority()     # before starting any game server
+        if before != after:
+            log.info("priority (CPU class, memory, I/O) raised from %s to %s - servers started from here "
+                     "inherit it", before, after)
+    except Exception as e:
+        log.warning("could not check this process's priority: %s", e)
     config = HERE / "config.json"
     if not config.exists():                        # first run: start empty, add servers in the UI
         example = HERE / "config.example.json"

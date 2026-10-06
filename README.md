@@ -39,8 +39,10 @@ install it).
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\install.ps1
    ```
-   It registers the `ServerDeck` scheduled task (starts at boot, elevated, restarts itself if it stops),
-   creates `config.json` and a desktop shortcut, and opens the page.
+   It registers the `ServerDeck` scheduled task (starts at boot, elevated, normal priority, restarts
+   itself if it stops), creates `config.json` and a desktop shortcut, and opens the page. (ServerDeck
+   also lifts itself to normal priority when it starts: Task Scheduler's default is below normal, and the
+   game servers it starts would inherit that.)
 3. In the page, press **Servers**:
    - no SteamCMD yet? press **Download SteamCMD there**;
    - **Add a server**: pick a game, choose an install folder, adjust ports - ServerDeck opens its
@@ -70,7 +72,10 @@ work across servers.
 - **Restart** - now, or after warning players for 1-30 minutes (skipped if nobody is on).
 - **Update now** (**Install** for a new server) - backs it up, runs SteamCMD with file validation,
   re-applies its mods, starts it again if it was running. With auto-update on, ServerDeck checks
-  every 30 minutes and does this by itself.
+  every 30 minutes and does this by itself - but a server that can't warn players in game (SCUM,
+  Enshrouded) isn't updated while people are on: the update waits until it has been empty for a
+  minute, or for its next scheduled restart (which does warn them), 6 hours at most without a
+  schedule. Players whose game has already updated can't join until then.
 - **Schedule** - restart every N hours from a start time, warning players N minutes ahead.
 - **Logs** (or **Logs & console**) - every log of that server: search, errors-only filter, live follow,
   download. Servers with RCON get a command line under the log.

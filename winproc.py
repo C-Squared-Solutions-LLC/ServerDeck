@@ -272,6 +272,46 @@ def in_job():
 
 k32.IsProcessInJob.argtypes = [wt.HANDLE, wt.HANDLE, ctypes.POINTER(wt.BOOL)]
 k32.GetCurrentProcess.restype = wt.HANDLE
+k32.GetPriorityClass.argtypes = [wt.HANDLE]
+k32.GetPriorityClass.restype = wt.DWORD
+k32.SetPriorityClass.argtypes = [wt.HANDLE, wt.DWORD]
+k32.GetProcessInformation.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void_p, wt.DWORD]
+k32.SetProcessInformation.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void_p, wt.DWORD]
+ntdll = ctypes.WinDLL("ntdll")
+ntdll.NtQueryInformationProcess.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void_p, wt.ULONG, ctypes.c_void_p]
+ntdll.NtQueryInformationProcess.restype = ctypes.c_long
+ntdll.NtSetInformationProcess.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void_p, wt.ULONG]
+ntdll.NtSetInformationProcess.restype = ctypes.c_long
+NORMAL_PRIORITY_CLASS = 0x20
+LOW_PRIORITY_CLASSES = (0x40, 0x4000)       # idle, below normal
+PROCESS_MEMORY_PRIORITY = 0                 # GetProcessInformation class; 5 = normal
+PROCESS_IO_PRIORITY = 33                    # NtQueryInformationProcess class; 2 = normal
+
+
+def priorities():
+    """This process's (CPU priority class, memory priority 1-5, I/O priority 0-3)."""
+    h = k32.GetCurrentProcess()
+    mem, io = wt.ULONG(), wt.ULONG()
+    k32.GetProcessInformation(h, PROCESS_MEMORY_PRIORITY, ctypes.byref(mem), ctypes.sizeof(mem))
+    ntdll.NtQueryInformationProcess(h, PROCESS_IO_PRIORITY, ctypes.byref(io), ctypes.sizeof(io), None)
+    return k32.GetPriorityClass(h), mem.value, io.value
+
+
+def normal_priority():
+    """Task Scheduler starts tasks below normal (its default priority 7 lowers CPU, disk and memory
+    priority) and every process started from here inherits that - the game servers too. Raise this
+    process to normal where it is lower (never lowers it). Returns priorities() before and after."""
+    before = priorities()
+    h = k32.GetCurrentProcess()
+    if before[0] in LOW_PRIORITY_CLASSES:
+        k32.SetPriorityClass(h, NORMAL_PRIORITY_CLASS)
+    if before[1] < 5:
+        mem = wt.ULONG(5)
+        k32.SetProcessInformation(h, PROCESS_MEMORY_PRIORITY, ctypes.byref(mem), ctypes.sizeof(mem))
+    if before[2] < 2:
+        io = wt.ULONG(2)
+        ntdll.NtSetInformationProcess(h, PROCESS_IO_PRIORITY, ctypes.byref(io), ctypes.sizeof(io))
+    return before, priorities()
 k32.QueryInformationJobObject.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void_p, wt.DWORD, ctypes.POINTER(wt.DWORD)]
 k32.QueryInformationJobObject.restype = wt.BOOL
 
