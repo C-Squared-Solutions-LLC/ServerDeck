@@ -361,6 +361,31 @@
 const $ = (s) => document.querySelector(s);
 let data = null;
 
+// Redraw in place: only text and attributes that changed are touched. Rebuilding everything every 3 s
+// let browser extensions that watch pages (password managers, coupon finders) keep each thrown-away
+// copy alive - a dashboard tab grew to 5 GB in a day.
+function patch(el, html) {
+  const t = document.createElement("template");
+  t.innerHTML = html;
+  morph(el, t.content);
+}
+function morph(cur, next) {
+  const a = [...cur.childNodes], b = [...next.childNodes];
+  b.forEach((y, i) => {
+    const x = a[i];
+    if (!x) cur.appendChild(y);
+    else if (x.nodeType !== y.nodeType || x.nodeName !== y.nodeName) cur.replaceChild(y, x);
+    else if (x.nodeType !== 1) { if (x.nodeValue !== y.nodeValue) x.nodeValue = y.nodeValue; }
+    else {
+      for (const at of [...x.attributes]) if (!y.hasAttribute(at.name)) x.removeAttribute(at.name);
+      for (const at of [...y.attributes]) if (x.getAttribute(at.name) !== at.value) x.setAttribute(at.name, at.value);
+      if (x.type === "checkbox") x.checked = y.hasAttribute("checked");   // show the server's state
+      morph(x, y);
+    }
+  });
+  for (let i = a.length - 1; i >= b.length; i--) a[i].remove();
+}
+
 const fmtBytes = (b) => b == null ? "-" : b >= 1073741824 ? (b / 1073741824).toFixed(1) + " GB"
   : b >= 1048576 ? (b / 1048576).toFixed(b >= 104857600 ? 0 : 1) + " MB" : b >= 1024 ? Math.round(b / 1024) + " KB" : b + " B";
 const fmtDur = (s) => { if (s == null) return "-"; s = Math.floor(s); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
@@ -475,23 +500,23 @@ function render() {
   const sy = data.system || {};
   const disks = Object.keys(sy).filter((k) => k.startsWith("disk_")).sort()
     .map((k) => `<span>${k.slice(5)}: <b>${fmtBytes(sy[k].free)} free</b></span>`).join("");
-  $("#sys").innerHTML = `<span>CPU <b>${sy.cpu != null ? sy.cpu.toFixed(0) + "%" : "-"}</b></span>
-    <span>RAM <b>${fmtBytes(sy.mem_used)}</b> / ${fmtBytes(sy.mem_total)}</span>${disks}`;
-  $("#banner").innerHTML = !data.admin
+  patch($("#sys"), `<span>CPU <b>${sy.cpu != null ? sy.cpu.toFixed(0) + "%" : "-"}</b></span>
+    <span>RAM <b>${fmtBytes(sy.mem_used)}</b> / ${fmtBytes(sy.mem_total)}</span>${disks}`);
+  patch($("#banner"), !data.admin
     ? `<div class="banner">ServerDeck is not running elevated, so it can show status but cannot control servers. Start it from the "ServerDeck" scheduled task (install.ps1 creates it).</div>`
-    : data.first_run ? `<div class="banner">No servers yet. <button class="primary" data-first="add">Add a server</button> - pick a game, choose where it goes, then press Install on its card.</div>` : "";
+    : data.first_run ? `<div class="banner">No servers yet. <button class="primary" data-first="add">Add a server</button> - pick a game, choose where it goes, then press Install on its card.</div>` : "");
   $("#lastcheck").textContent = "last update check: " + fmtAgo(data.last_check);
-  $("#grid").innerHTML = data.servers.map(card).join("");
+  patch($("#grid"), data.servers.map(card).join(""));
   const sickServers = data.servers.filter((s) => s.health && s.health.ok === false);
   const pc = data.system_health && data.system_health.ok === false ? data.system_health : null;
   document.body.classList.toggle("alarm", sickServers.length > 0 || !!pc);
-  $("#alarm").innerHTML = sickServers.length || pc
+  patch($("#alarm"), sickServers.length || pc
     ? `<div class="alarmbar">&#9888; ${sickServers.length + (pc ? 1 : 0) > 1 ? "Things are" : "Something is"} struggling<ul>
         ${pc ? `<li>This PC: ${esc(pc.reasons.join("; "))}</li>` : ""}
         ${sickServers.map((s) => `<li>${esc(s.name)}: ${esc(s.health.reasons.join("; "))}</li>`).join("")}</ul></div>`
-    : "";
-  $("#events").innerHTML = data.events.slice().reverse().map((e) =>
-    `<li class="${e.level}"><span class="t">${new Date(e.t * 1000).toLocaleString()}</span><span class="sv">${esc(e.server || "deck")}</span><span>${esc(e.msg)}</span></li>`).join("");
+    : "");
+  patch($("#events"), data.events.slice().reverse().map((e) =>
+    `<li class="${e.level}"><span class="t">${new Date(e.t * 1000).toLocaleString()}</span><span class="sv">${esc(e.server || "deck")}</span><span>${esc(e.msg)}</span></li>`).join(""));
   $("#clock").textContent = new Date(data.time * 1000).toLocaleTimeString();
 }
 
@@ -659,7 +684,7 @@ function renderLog() {
     html.push(`<span class="ln${isErr ? " err" : isWarn ? " wrn" : ""}">${h || " "}</span>`);
   }
   for (const r of logState.rcon) html.push(`<span class="ln cmd">&gt; ${esc(r.cmd)}</span><span class="ln">${esc(r.out)}</span>`);
-  body.innerHTML = html.join("") || `<span class="muted">${logState.lines.length ? "No lines match." : "(empty)"}</span>`;
+  patch(body, html.join("") || `<span class="muted">${logState.lines.length ? "No lines match." : "(empty)"}</span>`);
   const m = logState.meta || {};
   $("#logMeta").textContent = m.path
     ? `${m.path}  ·  ${m.size != null ? fmtBytes(m.size) : "?"}  ·  updated ${m.mtime ? new Date(m.mtime * 1000).toLocaleString() : "never"}  ·  showing ${shown} of the newest ${logState.lines.length} lines`
