@@ -1,8 +1,9 @@
-"""Minimal Steam A2S_INFO client (with the 2020+ challenge handshake)."""
+"""Minimal Steam A2S_INFO / A2S_PLAYER client (with the 2020+ challenge handshake)."""
 import socket
 import struct
 
 _REQ = b"\xFF\xFF\xFF\xFFTSource Engine Query\x00"
+_PLAYER = b"\xFF\xFF\xFF\xFFU"
 
 
 def info(host, port, timeout=1.5):
@@ -38,3 +39,27 @@ def info(host, port, timeout=1.5):
         "max_players": max_players,
         "bots": bots,
     }
+
+
+def players(host, port, timeout=1.5):
+    """A2S_PLAYER: [{"name", "score", "duration" (seconds connected)}] - names only, no Steam IDs."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(timeout)
+    try:
+        s.sendto(_PLAYER + b"\xFF\xFF\xFF\xFF", (host, port))
+        data = s.recv(65535)
+        if len(data) >= 9 and data[4] == 0x41:  # S2C_CHALLENGE
+            s.sendto(_PLAYER + data[5:9], (host, port))
+            data = s.recv(65535)
+    finally:
+        s.close()
+    if len(data) < 6 or data[:4] != b"\xFF\xFF\xFF\xFF" or data[4] != 0x44:
+        raise ValueError("unexpected A2S_PLAYER reply")
+    out, pos = [], 6
+    for _ in range(data[5]):
+        end = data.index(b"\x00", pos + 1)
+        name = data[pos + 1:end].decode("utf-8", "replace")      # (pos: the entry's index byte)
+        score, duration = struct.unpack_from("<lf", data, end + 1)
+        pos = end + 9
+        out.append({"name": name, "score": score, "duration": duration})
+    return out

@@ -24,6 +24,9 @@ Built-in templates: **SCUM**, **Space Engineers**, **Counter-Strike 2** (Metamod
   backed up before every start, restart, update and edit (when they changed), daily, and on demand;
   restore all of them or single files. Full backups (worlds + configs) before restarts/updates, with a
   restore button (the current folders are moved aside, never deleted). Keep backups for N days.
+- **Players**: who is on (names on each card), how long each player has been around (first seen, time
+  played), kick, ban - from one server or several at once, or their device through a sidecar - and
+  admin / moderator roles, each through the game's own lists.
 - **Discord feed** through a channel webhook: restarts, outages, alarms, announcements (optional
   @everyone), SCUM quest completions and a weekly leaderboard.
 - **SCUM extras**: a weekly "Blood Moon" event (horde-heavy settings for a night, switched back at
@@ -76,6 +79,7 @@ work across servers.
   Enshrouded) isn't updated while people are on: the update waits until it has been empty for a
   minute, or for its next scheduled restart (which does warn them), 6 hours at most without a
   schedule. Players whose game has already updated can't join until then.
+- **Players** (or click a name under **Online**) - see below.
 - **Schedule** - restart every N hours from a start time, warning players N minutes ahead.
 - **Logs** (or **Logs & console**) - every log of that server: search, errors-only filter, live follow,
   download. Servers with RCON get a command line under the log.
@@ -96,6 +100,26 @@ work across servers.
   players lose what happened since that backup.
 - **Retention** - keep backups for N days; the newest few of each kind always stay.
 
+**Players**
+- **Online** - who is on, this visit, how long they have been a member (since first seen, in years /
+  months / days / hours) and their time played, with **Kick**, **Ban...** and their role.
+- **All players** - everyone seen on that server, newest first. ServerDeck notes everyone it sees online
+  (every 30 s, kept in `players.json`); SCUM's own database supplies first seen and time played from
+  before that.
+- **Admins & moderators** - who has a role; change it in the list or give one by SteamID64.
+- **Bans** - bans made in ServerDeck on any server; **Lift** undoes one everywhere. **Ban...** asks for a
+  reason and which servers - a ban for a server that is offline is applied as soon as it is back - and,
+  where a sidecar offers it, a device ban (their PC, not just the account).
+
+| game | who is on | ban | kick | admin / moderator |
+|---|---|---|---|---|
+| SCUM | its login log | `BannedUsers.ini` - from its next restart (it has no remote console) | - | `AdminUsers.ini` (admin `[SetGodMode, ShutdownServer]`, moderator the standard commands) - from its next restart |
+| Space Engineers | Remote API | Remote API - right away | yes | admin: `<Administrators>` in its .cfg, written while it is stopped (it rewrites that file while running); moderators in-game |
+| Counter-Strike 2 | RCON `status_json` | `banid` + `writeid` - right away, and again after every start (CS2 forgets them) | yes | CounterStrikeSharp `admins.json` (flags: `role_flags`) - from its next start |
+| Rust | RCON `playerlist` | `banid` - right away | yes | `ownerid` / `moderatorid` - right away (`users.cfg` while stopped) |
+| Palworld | REST API | REST API - right away | yes | - (admins use the admin password in game) |
+| Enshrouded | Steam query - names only | - (in game) | - | - (the group passwords) |
+
 **Servers** - add a server from a template, remove one (its files stay on disk), set the SteamCMD path
 (or download SteamCMD) and the backups folder. ServerDeck restarts itself to load changes.
 
@@ -111,8 +135,8 @@ work across servers.
 **Restart ServerDeck** reloads ServerDeck itself (game servers keep running); it waits if a server is in
 the middle of something. The **Activity** list at the bottom shows everything ServerDeck did.
 
-Handy links: `#logs=<server>`, `#backups=<server>`, `#servers`, `#community` after the address, e.g.
-`http://127.0.0.1:8787/#backups=scum`.
+Handy links: `#logs=<server>`, `#backups=<server>`, `#players=<server>`, `#servers`, `#community` after
+the address, e.g. `http://127.0.0.1:8787/#backups=scum`.
 
 ## Config
 
@@ -132,7 +156,9 @@ one entry - the templates in `templates/` show every option. The most useful one
 | `backup` | `{"paths": [...], "exclude": [...], "dest": ...}` full backups before restarts/updates |
 | `pre_start`, `post_update` | hooks from `hooks.py`, e.g. `["cs2_addons"]`, `["rust_oxide"]` |
 | `health` | floors for the struggling alarm (`min_fps_busy`, `min_sim_speed`, ...) |
-| `sidecar` | a Python helper started only while the server is online (`dir`, `script`, `port`, `label`) |
+| `sidecar` | a Python helper started only while the server is online (`dir`, `script`, `port`, `label`). If it has an admin API - `GET /players`, `POST /ban` `{steam_id, ban_type, scope, reason_code, details}`, `POST /unban` `{ban_id}`, header `X-Admin-Key` = `admin_api_key` in its `config.toml` or an `admin_key` setting here - **Ban...** offers a device ban |
+| `role_flags` | CS2: CounterStrikeSharp flags per role, e.g. `{"admin": ["@css/root", "@myplugin/admin"]}` (default admin `@css/root`, moderator kick/ban/chat flags) |
+| `players` | where the player list comes from, if not the obvious one: `scum_log`, `se_remote`, `cs2_rcon`, `rust_rcon`, `palworld_rest` or `a2s` |
 
 `backups` (top level) sets the backup folder and retention, `community` the Discord name and
 leaderboard; both are also editable in the UI.
@@ -144,8 +170,9 @@ block - `{field}` placeholders are filled in, `{backup_root}` too.
 
 - The page has **no login** and listens on `127.0.0.1` only - keep it that way (use Remote Desktop or an
   SSH tunnel to reach it from elsewhere). Don't change `ui.host` to `0.0.0.0` on an open network.
-- `config.json` (RCON passwords, tokens), `community.json` (your Discord webhook) and `state.json` stay on
-  your PC - `.gitignore` keeps them out of git. Never paste them into issues.
+- `config.json` (RCON passwords, tokens), `community.json` (your Discord webhook), `players.json` (players'
+  names, Steam IDs, bans) and `state.json` stay on your PC - `.gitignore` keeps them out of git. Never
+  paste them into issues.
 
 ## Updating ServerDeck
 
@@ -160,6 +187,7 @@ then press **Restart ServerDeck** in the page.
 | `web/index.html` | the page |
 | `backups.py` | config/full backups, restore, retention |
 | `community.py` | Discord feed, events (Blood Moon), SCUM notifications and tips |
+| `players.py` | who is on, first seen / time played, kicks, bans, admin and moderator roles |
 | `setupwiz.py`, `templates/` | adding and removing servers |
 | `hooks.py` | per-game maintenance (mods after updates, SCUM notifications, Palworld/Enshrouded settings files) |
 | `steam.py`, `a2s.py`, `rcon.py`, `se_api.py`, `palworld.py`, `winproc.py` | SteamCMD, Steam queries, RCON, Space Engineers and Palworld APIs, Windows process control |

@@ -22,6 +22,8 @@ def call(port, key_b64, method, path, body=None, timeout=10):
     if body is not None:
         data = json.dumps(body).encode()
         headers["Content-Type"] = "application/json"
+    elif method in ("POST", "DELETE"):
+        data = b""                     # ban/kick routes take no body, but the listener wants a length
     req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, headers=headers, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         raw = r.read()

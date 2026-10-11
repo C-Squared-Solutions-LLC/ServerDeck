@@ -5,7 +5,8 @@ Counter-Strike 2, Rust). ServerDeck keeps the ones that should be online running
 updates with SteamCMD and re-applies mods afterwards (hooks.py: Metamod/CounterStrikeSharp,
 Oxide), restarts servers on a schedule with player warnings, backs up configs and worlds and
 restores them (backups.py), runs optional "sidecar" programs only while their server is online,
-watches performance, and posts to Discord (community.py). UI: http://127.0.0.1:8787.
+watches performance, lists who is playing with kicks, bans and admin roles (players.py), and posts
+to Discord (community.py). UI: http://127.0.0.1:8787.
 
 Run it elevated (install.ps1 sets up a scheduled task that does): Windows services and
 elevated game servers can only be controlled with admin rights.
@@ -39,6 +40,7 @@ import backups  # noqa: E402
 import community  # noqa: E402
 import hooks  # noqa: E402
 import palworld  # noqa: E402
+import players as playerslib  # noqa: E402
 import setupwiz  # noqa: E402
 import rcon as rconlib  # noqa: E402
 import se_api  # noqa: E402
@@ -830,6 +832,8 @@ class Server:
             latest_checked=self.mgr.state.get(self.id, "latest_checked"),
             job=self.job, held=self.held_until > time.time(), pending_stop=self.pending_stop,
             has_rcon=bool(self.cfg.get("rcon")),
+            players_source=playerslib.source(self.cfg),
+            players_online=self.mgr.players.names(self) if self.status.get("online") else [],
             plugins=self.plugin_status, plugin_names=(self.cfg.get("plugin_check") or {}).get("expect", []),
             logs=list(self.log_sources()), perf=self.perf,
             schedule=self.schedule(), schedule_times=[f"{t // 60:02d}:{t % 60:02d}" for t in self.schedule_times()],
@@ -871,6 +875,7 @@ class WinProcessServer(Server):
         if self.find_pid():
             return
         self._hooks("pre_start")
+        self.mgr.players.before_start(self)          # bans kept in a file (SCUM's BannedUsers.ini)
         exe = self.exe()
         args = [self.mgr.secret(a) for a in self.cfg.get("args", [])]
         pid, detached = winproc.launch_console_hidden([str(exe)] + args, cwd=str(exe.parent))
@@ -987,6 +992,7 @@ class WinServiceServer(Server):
     def _start(self):
         code, _ = self.svc()
         if code != 4:
+            self.mgr.players.before_start(self)      # role changes that waited for it to stop
             rc, out = self._sc("start")
             if rc not in (0, 1056):  # 1056 = already running
                 raise RuntimeError(f"sc start failed ({rc}): {out.strip()[-300:]}")
@@ -1041,6 +1047,7 @@ class Manager:
         self.community = community.Community(self, HERE / "community.json")
         self.events.listeners.append(self.community.on_event)
         self.backups = backups.Backups(self, HERE)
+        self.players = playerslib.Players(self, HERE / "players.json")   # who's on, bans, roles
         self.setup = setupwiz.Setup(self, HERE, self.config_path)
         hooks.HOOKS["scum_live"] = lambda s, changed=False, force=False: s.mgr.community.prestart(s)
         self.sys = {}
@@ -1064,10 +1071,17 @@ class Manager:
         if not m:
             return ref
         kind, path, key = m.groups()
-        if kind == "toml":
-            with open(path, "rb") as f:
-                return str(tomllib.load(f)[key])
-        text = Path(path).read_text(encoding="utf-8", errors="replace")
+        for attempt in range(6):
+            try:
+                if kind == "toml":
+                    with open(path, "rb") as f:
+                        return str(tomllib.load(f)[key])
+                text = Path(path).read_text(encoding="utf-8", errors="replace")
+                break
+            except PermissionError:              # the game is saving that file right now (SE does on every ban)
+                if attempt == 5:
+                    raise
+                time.sleep(0.3)
         if kind == "xml":
             found = re.search(r"<%s>(.*?)</%s>" % (key, key), text, re.S)
             if not found:
@@ -1121,6 +1135,8 @@ class Manager:
                     if self.admin and not s.busy():
                         s.check_plugins()
                         s.check_perf()
+                        self.players.poll(s)
+                        self.players.sync(s)
                     s.evaluate_health()
                 self.evaluate_system()
             except Exception:
@@ -1407,6 +1423,18 @@ class Manager:
             s.sidecar.last_start = 0
             return 202, {"ok": True, "note": None if s.status.get("online") else
                          "the server is offline, so the sidecar stays off until it is online"}
+        if action in ("kick", "role"):
+            if not self.admin:
+                return 403, {"error": "ServerDeck is not running elevated"}
+            steam_id = str(body.get("steam_id", "")).strip()
+            if not playerslib.STEAM_ID.fullmatch(steam_id):
+                return 400, {"error": "that is not a SteamID64 (17 digits, starting 7656)"}
+            if action == "kick":
+                return self.players.kick(s, steam_id, str(body.get("reason") or "").strip()[:200])
+            role = body.get("role") or None
+            if role not in (None, *playerslib.ROLES):
+                return 400, {"error": "role must be admin, moderator or none"}
+            return self.players.set_role(s, steam_id, str(body.get("name") or "").strip()[:64], role)
         jobs = {"start": s.job_start, "stop": s.job_stop, "restart": s.job_restart, "update": s.job_update}
         if action not in jobs:
             return 400, {"error": "unknown action"}
@@ -1468,12 +1496,16 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(url.query)
         n = max(10, min(int(q.get("n", ["500"])[0]), 10000))
         source = q.get("source", [""])[0]
-        m = re.fullmatch(r"/api/servers/([\w-]+)/(log|logfile)", url.path)
+        m = re.fullmatch(r"/api/servers/([\w-]+)/(log|logfile|players)", url.path)
         if m and m.group(1) in self.mgr.by_id:
             s = self.mgr.by_id[m.group(1)]
             if m.group(2) == "log":
                 return self._send(200, s.log_lines(source, n))
+            if m.group(2) == "players":
+                return self._send(200, self.mgr.players.api_players(s))
             return self._send_file(s.log_file(source))
+        if url.path == "/api/bans":
+            return self._send(200, self.mgr.players.api_bans())
         if url.path == "/api/setup":
             return self._send(200, self.mgr.setup.overview())
         m = re.fullmatch(r"/api/backups(?:/([\w-]+)(?:/(file|manifest|download))?)?", url.path)
@@ -1545,6 +1577,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(202, {"ok": True})
         if url.path == "/api/community":
             code, payload = self.mgr.community.api(body)
+            return self._send(code, payload)
+        if url.path == "/api/bans":
+            if not self.mgr.admin:
+                return self._send(403, {"error": "ServerDeck is not running elevated"})
+            code, payload = self.mgr.players.api(body)
             return self._send(code, payload)
         m = re.fullmatch(r"/api/setup/(\w+)", url.path)
         if m:

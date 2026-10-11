@@ -3,6 +3,7 @@ config.json
 config.json.bak-*
 state.json
 community.json
+players.json
 *.bak*
 *.tmp
 *.serverdeck-tmp

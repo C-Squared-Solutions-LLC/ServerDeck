@@ -163,6 +163,16 @@
            border: 1px solid var(--line); background: var(--panel); color: var(--text); }
   .form textarea { font: 13px/1.45 "Segoe UI", system-ui, sans-serif; padding: 8px 10px; border-radius: 7px; width: 100%;
                    border: 1px solid var(--line); background: var(--panel); color: var(--text); resize: vertical; }
+  /* players dialog */
+  table.bk td select { padding: 2px 6px; font-size: 12px; }
+  #plMsg { padding: 0 14px; font-size: 13px; }
+  #plMsg:empty { display: none; }
+  .plres { margin: 0; padding-left: 18px; font-size: 13px; }
+  .panel .checks { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+  .panel label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .panel label.tg { flex-direction: row; color: var(--text); }
+  .panel .inline { display: flex; gap: 10px; flex-wrap: wrap; }
+  .panel input[type=text] { min-width: 200px; }
 </style>
 </head>
 <body>
@@ -357,6 +367,31 @@
     <div class="controls"><button value="cancel" formnovalidate>Close</button><button class="primary" value="ok">Save</button></div>
   </form>
 </dialog>
+<dialog id="plDlg">
+  <div class="dlg">
+    <div class="bar">
+      <div class="controls">
+        <h1>Players</h1>
+        <select id="plServer" title="Server"></select>
+      </div>
+      <div class="controls">
+        <button id="plBanId" title="Ban someone who isn't online, by their SteamID64">Ban a Steam ID...</button>
+        <button id="plClose">Close</button>
+      </div>
+    </div>
+    <div class="tabs" id="plTabs">
+      <button data-tab="online" class="active">Online</button>
+      <button data-tab="known">All players</button>
+      <button data-tab="staff">Admins &amp; moderators</button>
+      <button data-tab="bans">Bans</button>
+    </div>
+    <div class="bkbody">
+      <div id="plMsg"></div>
+      <div id="plForm" hidden></div>
+      <div id="plBody">loading...</div>
+    </div>
+  </div>
+</dialog>
 <script>
 const $ = (s) => document.querySelector(s);
 let data = null;
@@ -456,6 +491,10 @@ function card(s) {
   const cd = s.job && s.job.countdown_until;
   const sick = s.health && s.health.ok === false;
   const notInstalled = s.installed === false;
+  const on = s.players_online || [];
+  const who = on.length ? `<div class="row"><span>Online:</span> ${on.slice(0, 12).map((n) =>
+      `<span class="chip link" data-act="players" title="Players: who's on, kick, ban, roles">${esc(n)}</span>`).join(" ")}${on.length > 12
+      ? ` <span class="chip link" data-act="players">+${on.length - 12} more</span>` : ""}</div>` : "";
   return `<article class="card s-${cls}${sick ? " sick" : ""}" data-id="${s.id}">
     <div class="head"><h2>${esc(s.name)}</h2><span class="badge">${esc(s.kind)}</span>
       <span class="state"><span class="dot"></span>${esc(label)}</span></div>
@@ -468,6 +507,7 @@ function card(s) {
       <div class="stat" title="Physical RAM the server occupies right now (working set)"><div class="k">RAM in use</div><div class="v">${s.running && s.mem_ws != null ? fmtBytes(s.mem_ws) : "-"}</div></div>
       <div class="stat" title="Memory Windows has committed to the server - RAM plus page file (Task Manager's commit size)"><div class="k">RAM reserved</div><div class="v">${s.running ? fmtBytes(s.mem) : "-"}</div></div>
     </div>
+    ${who}
     <div class="row">build <b>${esc(s.installed_build || "?")}</b>${upd ? " · " + upd : ""} · ${checked}</div>
     ${mods || sidecar || plugins ? `<div class="row">${mods} ${plugins} ${sidecar}</div>` : ""}
     <div class="row">${ports}${s.pid ? ` <span class="chip">pid ${s.pid}</span>` : ""} ${perf}</div>
@@ -484,6 +524,7 @@ function card(s) {
       <button class="danger" data-act="stop" ${!s.running && !busy ? "disabled" : ""}>Stop</button>
       <button data-act="restart" ${busy || !s.running ? "disabled" : ""}>Restart</button>
       <button data-act="update" ${busy ? "disabled" : ""} ${notInstalled ? `class="primary"` : ""}>${notInstalled ? "Install" : "Update now"}</button>
+      ${s.players_source ? `<button data-act="players" title="Who's on, how long they've played, kick, ban, admins and moderators">Players</button>` : ""}
       <button data-act="schedule">Schedule</button>
       <button data-act="log">${s.has_rcon ? "Logs & console" : "Logs"}</button>
       <button data-act="backups" title="Config files, config backups, full backups">Configs</button>
@@ -531,6 +572,8 @@ async function refresh() {
   if (!openedFromHash && location.hash === "#servers") { openedFromHash = true; openSetup(); }
   const bm = !openedFromHash && location.hash.match(/^#backups(?:=([\w-]+))?$/);
   if (bm) { openedFromHash = true; openBackups(bm[1] || (data.servers[0] && data.servers[0].id)); }
+  const pm = !openedFromHash && location.hash.match(/^#players(?:=([\w-]+))?(?::(\w+))?$/);
+  if (pm) { openedFromHash = true; await openPlayers(pm[1]); if (pm[2] && PL_TABS[pm[2]]) { pl.tab = pm[2]; plLoad(true); } }
 }
 
 const confirmText = {
@@ -600,6 +643,7 @@ $("#grid").addEventListener("click", async (ev) => {
   const id = btn.closest(".card").dataset.id, act = btn.dataset.act;
   const srv = data.servers.find((s) => s.id === id);
   if (act === "log") return openLogs(id);
+  if (act === "players") return openPlayers(id);
   if (act === "backups") return openBackups(id);
   if (act === "sidecarlog") return openLogs(id, (srv.sidecar && srv.sidecar.label) || "Sidecar");
   if (act === "restart") return openRestart(srv);
@@ -1032,6 +1076,203 @@ $("#suInstallSteam").addEventListener("click", async () => {
 });
 $("#serversBtn").addEventListener("click", () => openSetup());
 $("#banner").addEventListener("click", (ev) => { if (ev.target.closest("[data-first]")) openSetup(); });
+
+// ---- players dialog: who's on, how long they've been around, kick / ban / roles ----
+const pl = { server: null, tab: "online", d: null, bans: null, timer: null, form: null, filter: "" };
+const PL_TABS = { online: "Online", known: "All players", staff: "Admins & moderators", bans: "Bans" };
+const fmtDate = (t) => new Date(t * 1000).toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+function fmtSince(t) {             // calendar years / months / days / hours from t until now
+  if (!t) return "-";
+  const a = new Date(t * 1000), b = new Date();
+  const plus = (n) => { const x = new Date(a); x.setMonth(x.getMonth() + n); return x; };
+  let months = Math.max(0, (b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth());
+  if (months && plus(months) > b) months--;
+  const hours = Math.max(0, Math.floor((b - plus(months)) / 3600000));
+  const parts = [[Math.floor(months / 12), "y"], [months % 12, "mo"], [Math.floor(hours / 24), "d"], [hours % 24, "h"]].filter(([v]) => v > 0);
+  return parts.length ? parts.slice(0, 3).map(([v, u]) => v + u).join(" ") : "under 1h";
+}
+function fmtYMDH(sec) {            // a length of time in years / months / days / hours
+  if (sec == null) return "-";
+  if (sec < 3600) return Math.round(sec / 60) + "m";
+  const h = Math.floor(sec / 3600), y = Math.floor(h / 8766), mo = Math.floor(h % 8766 / 730.5), d = Math.floor(h % 730.5 / 24);
+  return [[y, "y"], [mo, "mo"], [d, "d"], [h % 24, "h"]].filter(([v]) => v > 0).slice(0, 3).map(([v, u]) => v + u).join(" ");
+}
+const plSrv = () => data.servers.find((s) => s.id === pl.server) || { name: pl.server };
+const plResults = (rs) => `<ul class="plres">${rs.map((r) => `<li class="${r.ok ? "okmsg" : "errmsg"}">${r.ok ? "&#10003;" : "&#10007;"} <b>${esc(r.target)}</b>: ${esc(r.msg)}</li>`).join("")}</ul>`;
+function plMsg(cls, html) { $("#plMsg").className = cls; $("#plMsg").innerHTML = html; }
+
+async function openPlayers(id) {
+  const list = data.servers.filter((s) => s.players_source);
+  if (!list.length) return;
+  pl.server = list.some((s) => s.id === id) ? id : list[0].id;
+  $("#plServer").innerHTML = list.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join("");
+  $("#plServer").value = pl.server;
+  Object.assign(pl, { tab: "online", d: null, form: null, filter: "" });
+  $("#plForm").hidden = true; plMsg("", ""); $("#plBody").textContent = "loading...";
+  if (!$("#plDlg").open) $("#plDlg").showModal();
+  clearInterval(pl.timer);
+  pl.timer = setInterval(() => { if (pl.tab === "online" && !document.hidden) plLoad(); }, 10000);
+  await plLoad(true);
+}
+async function plLoad(withBans) {
+  const id = pl.server;
+  try {
+    const d = await api(`/api/servers/${id}/players`);
+    if (withBans || pl.tab === "bans" || !pl.bans) pl.bans = await api("/api/bans");
+    if (id !== pl.server) return;                  // switched servers meanwhile
+    pl.d = d;
+  } catch (e) { $("#plBody").innerHTML = `<p class="errmsg">${esc(e.message)}</p>`; return; }
+  plRender();
+}
+function plRoleCell(p) {
+  const d = pl.d, pend = d.pending_roles || {};
+  const later = p.steam_id && p.steam_id in pend
+    ? ` <span class="chip warn" title="${esc(plSrv().name)} rewrites its config while it runs: this is written when it next stops or restarts">&rarr; ${esc(pend[p.steam_id] || "player")} after a restart</span>` : "";
+  if (!p.steam_id || !d.roles.length) return (p.role ? `<span class="chip">${esc(p.role)}</span>` : "-") + later;
+  const opts = [["", "player"], ...d.roles.map((r) => [r, r])];
+  if (p.role && !d.roles.includes(p.role)) opts.push([p.role, p.role]);
+  return `<select data-role="${esc(p.steam_id)}" data-name="${esc(p.name || "")}" data-cur="${esc(p.role || "")}" title="Their role on ${esc(plSrv().name)}">${opts.map(([v, t]) =>
+    `<option value="${v}"${(p.role || "") === v ? " selected" : ""}>${t}</option>`).join("")}</select>${later}`;
+}
+const plActions = (p, kick) => !p.steam_id ? "" : (kick && pl.d.can_kick ? `<button data-kick="${esc(p.steam_id)}" data-name="${esc(p.name)}">Kick</button> ` : "")
+  + `<button class="danger" data-ban="${esc(p.steam_id)}" data-name="${esc(p.name)}">Ban...</button>`;
+function plKnownRows() {
+  const d = pl.d, q = pl.filter.trim().toLowerCase(), onNow = new Set(d.online.map((p) => p.steam_id || "name:" + p.name));
+  const rows = d.known.filter((k) => !q || k.name.toLowerCase().includes(q) || (k.steam_id || "").includes(q));
+  return rows.length ? `<table class="bk"><tr><th>Player</th><th>Steam ID</th><th>First seen</th><th>Member for</th><th>Last seen</th><th>Time played</th><th>Role</th><th></th></tr>
+    ${rows.slice(0, 300).map((k) => `<tr><td><b>${esc(k.name)}</b></td><td class="mono">${esc(k.steam_id || "-")}</td>
+      <td class="num">${k.first ? fmtDate(k.first) : "-"}</td><td>${fmtSince(k.first)}</td>
+      <td>${onNow.has(k.key) ? `<span class="chip up">online now</span>` : k.last ? fmtSince(k.last) + " ago" : "-"}</td>
+      <td class="num">${fmtYMDH(k.played)}</td><td>${plRoleCell(k)}</td><td class="act">${plActions(k, false)}</td></tr>`).join("")}</table>
+    ${rows.length > 300 ? `<p class="muted">${rows.length - 300} more - filter to find them.</p>` : ""}`
+    : `<p class="muted">${q ? "Nobody matches." : "Nobody seen yet."}</p>`;
+}
+function plRender() {
+  const d = pl.d, b = pl.bans, srv = plSrv(), nowS = Date.now() / 1000, dev = d.device;
+  const counts = { online: d.online.length, known: d.known.length, staff: d.staff.length, bans: b ? b.bans.length : 0 };
+  for (const t of $("#plTabs").children) { t.classList.toggle("active", t.dataset.tab === pl.tab); t.textContent = `${PL_TABS[t.dataset.tab]} (${counts[t.dataset.tab]})`; }
+  const verified = new Set(dev ? dev.verified : []);
+  let html;
+  if (pl.tab === "online") {
+    html = `${d.error ? `<p class="errmsg">Could not ask ${esc(srv.name)} who is on: ${esc(d.error)}</p>` : ""}
+      ${!d.server_online ? `<p class="muted">${esc(srv.name)} is not online.</p>` : !d.online.length ? `<p class="muted">Nobody is on ${esc(srv.name)} right now.</p>`
+      : `<table class="bk"><tr><th>Player</th><th>Steam ID</th><th>This visit</th><th title="Since they were first seen here">Member for</th><th>Time played</th><th>Role</th>${dev ? `<th title="${esc(dev.label)}">Device</th>` : ""}<th></th></tr>
+        ${d.online.map((p) => `<tr><td><b>${esc(p.name)}</b>${p.info ? ` <span class="muted">${esc(p.info)}</span>` : ""}${p.ping != null ? ` <span class="muted">${Math.round(p.ping)} ms</span>` : ""}</td>
+          <td class="mono">${esc(p.steam_id || "-")}</td><td class="num">${p.since ? fmtDur(nowS - p.since) : "-"}</td>
+          <td title="${p.first ? "first seen " + esc(new Date(p.first * 1000).toLocaleString()) : ""}">${fmtSince(p.first)}</td>
+          <td class="num">${fmtYMDH(p.played)}</td><td>${plRoleCell(p)}</td>
+          ${dev ? `<td>${verified.has(p.steam_id) ? `<span class="chip up">verified</span>` : "-"}</td>` : ""}
+          <td class="act">${plActions(p, true)}</td></tr>`).join("")}</table>`}
+      <p class="muted">${esc(d.ban_note)}</p>`;
+  } else if (pl.tab === "known") {
+    html = `<p class="muted">Everyone seen on ${esc(srv.name)}, most recent first - ${d.history_from_game ? `from ${esc(srv.name)}'s own records, plus what ServerDeck has seen` : `what ServerDeck has seen${d.tracked_since ? " since " + fmtDate(d.tracked_since) : " (nothing yet - it notes everyone it sees online)"}`}.</p>
+      <input type="text" id="plFilter" placeholder="Filter by name or Steam ID" value="${esc(pl.filter)}" autocomplete="off">
+      <div id="plKnown">${plKnownRows()}</div>`;
+  } else if (pl.tab === "staff") {
+    html = `<p class="muted">${esc(d.role_note)}</p>${d.staff_error ? `<p class="errmsg">${esc(d.staff_error)}</p>` : ""}
+      ${d.staff.length ? `<table class="bk"><tr><th>Player</th><th>Steam ID</th><th>Role</th><th>Details</th></tr>${d.staff.map((x) =>
+        `<tr><td><b>${esc(x.name || "?")}</b></td><td class="mono">${esc(x.steam_id)}</td><td>${plRoleCell(x)}</td><td class="muted">${esc(x.detail || "")}</td></tr>`).join("")}</table>`
+      : `<p>Nobody has a role on ${esc(srv.name)}.</p>`}
+      ${d.roles.length ? `<div class="panel"><b>Give someone a role</b><div class="controls" style="justify-content:flex-start">
+        <input type="text" id="plRoleId" placeholder="SteamID64 (17 digits)" autocomplete="off"><input type="text" id="plRoleName" placeholder="Name (optional)" autocomplete="off">
+        <select id="plRoleSel">${d.roles.map((r) => `<option value="${r}">${r}</option>`).join("")}</select><button class="primary" id="plRoleGive">Give role</button></div></div>` : ""}`;
+  } else {
+    html = `<p class="muted">Bans made in ServerDeck, on every server - lifting one undoes it everywhere it was made. ${esc(d.ban_note)}</p>
+      ${b && b.bans.length ? `<table class="bk"><tr><th>Player</th><th>Steam ID</th><th>Reason</th><th>When</th><th>Where</th><th></th></tr>${b.bans.map((e) =>
+        `<tr><td><b>${esc(e.name || "?")}</b></td><td class="mono">${esc(e.steam_id)}</td><td>${esc(e.reason || "")}</td><td class="num">${fmtWhen(e.at)}</td>
+         <td>${Object.values(e.servers || {}).map((st) => `<span class="chip ${st.error ? "down" : st.done ? "up" : "warn"}" title="${esc(st.error || "")}">${esc(st.server)}${st.want === "lift" ? " - being lifted" : st.done ? "" : " - waiting"}</span>`).join(" ")}
+           ${Object.values(e.devices || {}).map((x) => `<span class="chip up" title="${esc(x.ban_type)} ban, scope: ${esc(x.scope)}">device (${esc(x.server)})</span>`).join(" ")}</td>
+         <td class="act"><button data-unban="${esc(e.steam_id)}" data-name="${esc(e.name || "")}">Lift</button></td></tr>`).join("")}</table>`
+      : `<p>No bans made in ServerDeck yet.</p>`}`;
+  }
+  patch($("#plBody"), html);
+}
+function plBanForm(steamId, name) {
+  const b = pl.bans, manual = !steamId;
+  const when = (t) => t.scum ? `at its next restart${t.next_restart ? " (" + fmtDay(t.next_restart) + ")" : ""} - SCUM can't kick` : t.needs_online && !t.online ? "offline - as soon as it is back" : "right away";
+  $("#plForm").innerHTML = `<div class="panel">
+    <b>${manual ? "Ban a Steam ID" : `Ban ${esc(name)} <span class="mono muted">${esc(steamId)}</span>`}</b>
+    ${manual ? `<div class="controls" style="justify-content:flex-start"><input type="text" id="bfId" placeholder="SteamID64 (17 digits)" autocomplete="off"><input type="text" id="bfName" placeholder="Name (optional)" autocomplete="off"></div>` : ""}
+    <label><span>Reason <span class="muted">(kept with the ban and in Activity)</span></span><input type="text" id="bfReason" maxlength="200" autocomplete="off"></label>
+    <div><p class="muted">Ban on:</p><div class="checks">${b.targets.map((t) =>
+      `<label class="tg"><input type="checkbox" data-bt="${esc(t.id)}"${t.id === pl.server ? " checked" : ""}> ${esc(t.name)} <span class="muted">- ${esc(when(t))}</span></label>`).join("")}</div></div>
+    ${b.devices.length ? `<div><p class="muted">Device ban - their PC, not just this account (only players who verified through the sidecar):</p><div class="checks">${b.devices.map((x) => {
+        const known = manual || x.verified.includes(steamId), ok = x.running && known;
+        const why = !x.running ? `off while ${x.name} is offline` : known ? (manual ? "if their device is on record" : "verified device") : "no verified device on record";
+        return `<label class="tg"><input type="checkbox" data-bd="${esc(x.id)}"${ok ? "" : " disabled"}> ${esc(x.label)} - ${esc(x.name)} <span class="muted">(${esc(why)})</span></label>`; }).join("")}</div>
+      <div class="inline"><label>Kind<select id="bfType"><option value="cheat">cheating</option><option value="social">behaviour</option></select></label>
+        <label>Scope<select id="bfScope"><option value="game">this game</option><option value="publisher">every game on that account</option></select></label></div></div>` : ""}
+    <div class="controls" style="justify-content:flex-start"><button class="primary" id="bfGo">Ban</button><button id="bfCancel">Close</button></div>
+    <div id="bfMsg"></div></div>`;
+  pl.form = { steamId, name, manual };
+  $("#plForm").hidden = false;
+  (manual ? $("#bfId") : $("#bfReason")).focus();
+}
+async function plBanSubmit() {
+  const f = pl.form, steam_id = f.manual ? $("#bfId").value.trim() : f.steamId, name = f.manual ? $("#bfName").value.trim() : f.name;
+  const servers = [...$("#plForm").querySelectorAll("input[data-bt]:checked")].map((c) => c.dataset.bt);
+  const devices = [...$("#plForm").querySelectorAll("input[data-bd]:checked")].map((c) => c.dataset.bd);
+  if (!/^7656\d{13}$/.test(steam_id)) { $("#bfMsg").innerHTML = `<p class="errmsg">Enter a SteamID64: 17 digits starting 7656.</p>`; return; }
+  if (!servers.length && !devices.length) { $("#bfMsg").innerHTML = `<p class="errmsg">Tick at least one server or device ban.</p>`; return; }
+  $("#bfGo").disabled = true; $("#bfMsg").innerHTML = `<p class="muted">banning...</p>`;
+  try {
+    const j = await api("/api/bans", { action: "ban", steam_id, name, reason: $("#bfReason").value.trim(), servers, devices,
+      ban_type: $("#bfType") ? $("#bfType").value : "cheat", scope: $("#bfScope") ? $("#bfScope").value : "game" });
+    $("#bfMsg").innerHTML = plResults(j.results);
+  } catch (e) { $("#bfMsg").innerHTML = `<p class="errmsg">${esc(e.message)}</p>`; }
+  $("#bfGo").disabled = false;
+  plLoad(true);
+}
+async function plSetRole(steam_id, name, role) {
+  try { const j = await api(`/api/servers/${pl.server}/role`, { steam_id, name, role: role || null });
+        plMsg("okmsg", `${esc(name || steam_id)}: ${role ? esc(role) : "no role"} on ${esc(plSrv().name)} - ${esc(j.note)}`); }
+  catch (e) { plMsg("errmsg", esc(e.message)); }
+  plLoad();
+}
+$("#plBody").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button"); if (!b) return;
+  if (b.dataset.ban) return plBanForm(b.dataset.ban, b.dataset.name);
+  if (b.dataset.kick) {
+    if (!confirm(`Kick ${b.dataset.name} from ${plSrv().name}?`)) return;
+    try { await api(`/api/servers/${pl.server}/kick`, { steam_id: b.dataset.kick }); plMsg("okmsg", `${esc(b.dataset.name)} was kicked.`); }
+    catch (e) { plMsg("errmsg", esc(e.message)); }
+    return plLoad();
+  }
+  if (b.dataset.unban) {
+    if (!confirm(`Lift the ban on ${b.dataset.name || b.dataset.unban} everywhere ServerDeck banned them?`)) return;
+    try { const j = await api("/api/bans", { action: "unban", steam_id: b.dataset.unban }); plMsg("", plResults(j.results)); }
+    catch (e) { plMsg("errmsg", esc(e.message)); }
+    return plLoad(true);
+  }
+  if (b.id === "plRoleGive") {
+    const sid = $("#plRoleId").value.trim(), role = $("#plRoleSel").value;
+    if (!/^7656\d{13}$/.test(sid)) return plMsg("errmsg", "Enter a SteamID64: 17 digits starting 7656.");
+    if (!confirm(`Make ${sid} ${role === "admin" ? "an admin" : "a moderator"} on ${plSrv().name}?`)) return;
+    return plSetRole(sid, $("#plRoleName").value.trim(), role);
+  }
+});
+$("#plBody").addEventListener("change", async (ev) => {
+  const sel = ev.target.closest("select[data-role]"); if (!sel) return;
+  const role = sel.value, who = sel.dataset.name || sel.dataset.role;
+  if (!confirm(role ? `Make ${who} ${role === "admin" ? "an admin" : "a moderator"} on ${plSrv().name}?` : `Take ${who}'s ${sel.dataset.cur} role away on ${plSrv().name}?`)) {
+    sel.value = sel.dataset.cur; return;
+  }
+  await plSetRole(sel.dataset.role, sel.dataset.name, role);
+});
+$("#plBody").addEventListener("input", (ev) => { if (ev.target.id === "plFilter") { pl.filter = ev.target.value; $("#plKnown").innerHTML = plKnownRows(); } });
+$("#plForm").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button"); if (!b) return;
+  if (b.id === "bfGo") plBanSubmit();
+  if (b.id === "bfCancel") { $("#plForm").hidden = true; pl.form = null; }
+});
+$("#plTabs").addEventListener("click", (ev) => { const b = ev.target.closest("button[data-tab]"); if (!b) return; pl.tab = b.dataset.tab; plMsg("", ""); plLoad(pl.tab === "bans"); });
+$("#plServer").addEventListener("change", () => { pl.server = $("#plServer").value; pl.filter = ""; pl.form = null; $("#plForm").hidden = true; plMsg("", ""); plLoad(); });
+$("#plBanId").addEventListener("click", async () => {
+  try { pl.bans = await api("/api/bans"); } catch (e) { return plMsg("errmsg", esc(e.message)); }
+  plBanForm(null, "");
+});
+$("#plClose").addEventListener("click", () => $("#plDlg").close());
+$("#plDlg").addEventListener("close", () => clearInterval(pl.timer));
 
 refresh();
 setInterval(() => { if (!document.hidden) refresh(); }, 3000);
