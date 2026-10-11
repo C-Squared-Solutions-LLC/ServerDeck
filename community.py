@@ -7,7 +7,8 @@
 * SCUM notifications - restart warnings, rotating survival tips and event notices, written to
   SCUM's Notifications.json before every start (SCUM reads that file when it starts).
 * Discord feed (webhook) - restarts/updates/alarms of the chosen servers, Blood Moon, SCUM quest
-  completions and walker-kill awards, and a weekly leaderboard.
+  completions and walker-kill milestones, and a weekly leaderboard (walkers, quests, fame - walkers and
+  fame from SCUM's own database, quests from its log).
 
 The webhook URL is a secret: it is kept only in state.json, never logged, never sent back to
 the browser.
@@ -16,11 +17,15 @@ import json
 import logging
 import queue
 import re
+import shutil
+import sqlite3
+import tempfile
 import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import hooks
@@ -220,8 +225,35 @@ class Discord:
 # --------------------------------------------------------------------------
 
 QUEST_RE = re.compile(r"\[LogQuestStatus\]\s*(?P<who>.+?)\s+completed quest\s+(?P<quest>.+?)\s*$")
-SUMMARY_RE = re.compile(r"Player (?P<who>.+?) was awarded (?P<pts>-?[\d.]+) fame points in 10 minutes")
-AWARD_RE = re.compile(r"Player (?P<who>.+?) was awarded (?P<pts>-?[\d.]+) fame points for (?P<reason>\w+)")
+MILESTONES = (100, 250, 500, 1000, 2500, 5000, 10000, 25000)
+STATS = ("walkers", "fame")
+
+
+def scum_stats(db):
+    """Lifetime numbers per player from SCUM's own database, read-only:
+    {steam_id: {"name", "walkers", "fame", "created"}}. Its fame log stopped having a line per kill
+    (1.3.4: "PuppetKill: 0.176" is fame, and the 10-minute "awarded" figure is the player's total).
+    Raider (armed NPC) kills aren't recorded separately anywhere - not in the database, not in the logs."""
+    con = sqlite3.connect(Path(db).resolve().as_uri() + "?mode=ro", uri=True, timeout=10)
+    try:
+        rows = con.execute("SELECT u.user_id, u.name, s.puppets_killed, u.fame_points, u.creation_time "
+                           "FROM user_profile u JOIN survival_stats s ON s.user_profile_id = u.id").fetchall()
+    finally:
+        con.close()
+    return {str(r[0]): {"name": r[1], "walkers": int(r[2] or 0), "fame": round(float(r[3] or 0), 2), "created": r[4]}
+            for r in rows if r[0]}
+
+
+def scum_stats_from_backup(zip_path):
+    """The same numbers from the SCUM.db inside one of ServerDeck's full backups (None if it has none)."""
+    with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(zip_path) as z:
+        names = [n for n in z.namelist() if re.search(r"(^|/)SaveFiles/SCUM\.db(-wal|-shm)?$", n)]
+        if not any(n.endswith("SCUM.db") for n in names):
+            return None
+        for n in names:
+            with z.open(n) as src, open(Path(tmp) / Path(n).name, "wb") as out:
+                shutil.copyfileobj(src, out)
+        return scum_stats(Path(tmp) / "SCUM.db")
 
 
 def who_key(who):
@@ -239,12 +271,20 @@ class ScumFeed:
         self.c, self.s = community, server
         self.dir = Path(server.cfg["install_dir"]) / "SCUM" / "Saved" / "SaveFiles" / "Logs"
         self.quest_dir = Path(server.cfg["install_dir"]) / "SCUM" / "Saved" / "Config" / "WindowsServer" / "Quests"
+        self.db = Path(server.cfg["install_dir"]) / "SCUM" / "Saved" / "SaveFiles" / "SCUM.db"
+        self.db_checked = 0
         self.pos = {}
         self.quests = {}
         self.quests_at = 0
         self.seen_lines = 0
 
     def poll(self):
+        if time.time() - self.db_checked >= 60:
+            self.db_checked = time.time()
+            try:
+                self.c.week_stats(self.s, scum_stats(self.db))
+            except (sqlite3.Error, OSError) as e:
+                log.info("SCUM.db not readable right now: %s", e)
         for p in self.PREFIXES:
             files = sorted(self.dir.glob(f"{p}_*.log"))          # timestamped names sort by time
             if not files:
@@ -317,23 +357,6 @@ class ScumFeed:
             by = f" for the {npc}" if npc else ""
             self.c.discord.post(f"{E['quest']} **{md(name)}** completed *{md(title)}*{by}"
                                 f"{f' (tier {tier})' if tier else ''}", "quests", self.s.id)
-            return
-        m = SUMMARY_RE.search(line)
-        if m:
-            key, name = who_key(m.group("who"))
-            self.c.count(key, name, fame=float(m.group("pts")))
-            return
-        m = AWARD_RE.search(line)
-        if m:
-            key, name = who_key(m.group("who"))
-            reason = m.group("reason")
-            if reason == "PuppetKills":
-                self.c.count(key, name, walkers=1)
-            elif re.fullmatch(r"PuppetKills(\d+)", reason):
-                n = re.fullmatch(r"PuppetKills(\d+)", reason).group(1)
-                if int(n) >= 100:
-                    self.c.discord.post(f"{E['zombie']} **{md(name)}** earned the {n}-walker kill award",
-                                        "milestones", self.s.id)
 
 
 # --------------------------------------------------------------------------
@@ -377,15 +400,69 @@ class Community:
             tmp.replace(self.path)
             self.dirty = False
 
-    def count(self, key, name, walkers=0, quests=0, fame=0.0):
+    def count(self, key, name, quests=0):
         with self.lock:
             st = self.settings()
             p = st["week"]["players"].setdefault(key, {"name": name, "walkers": 0, "quests": 0, "fame": 0.0})
             p["name"] = name
-            p["walkers"] += walkers
             p["quests"] += quests
-            p["fame"] = round(p["fame"] + fame, 2)
             self.dirty = True                             # saved by the loop (debounced)
+
+    def week_stats(self, server, now):
+        """Walkers and fame this week = SCUM's lifetime numbers now minus when the week began.
+        Also posts lifetime walker milestones (100, 250, 500, ... walkers)."""
+        with self.lock:
+            week = self.settings()["week"]
+            need_base = server.id not in week.get("base", {})
+            start = week.get("start", time.time())
+        if need_base:
+            base = self.week_base(server, start, now)     # may read a backup: outside the lock
+            with self.lock:
+                self.settings()["week"].setdefault("base", {}).setdefault(server.id, base)
+                self.dirty = True
+        reached_new = []
+        with self.lock:
+            st = self.settings()
+            week, ms = st["week"], st.setdefault("milestones", {})
+            base = week["base"][server.id]
+            for sid, cur in now.items():
+                b = base.get(sid)
+                if b is None:                             # first seen this week; SCUM's creation_time is UTC
+                    new = str(cur.get("created") or "") >= datetime.fromtimestamp(week["start"], timezone.utc).strftime("%Y-%m-%dT%H:%M")
+                    b = base[sid] = {k: (0 if new else cur[k]) for k in STATS}
+                    self.dirty = True
+                d = {"walkers": max(0, cur["walkers"] - b["walkers"]), "fame": round(cur["fame"] - b["fame"], 2)}
+                p = week["players"].get(sid)
+                if p is None and any(d.values()):
+                    p = week["players"][sid] = {"name": cur["name"], "walkers": 0, "quests": 0, "fame": 0.0}
+                if p is not None and (any(p.get(k) != d[k] for k in STATS) or p["name"] != cur["name"]):
+                    p.update(name=cur["name"], **d)
+                    self.dirty = True
+                top = max((m for m in MILESTONES if cur["walkers"] >= m), default=0)
+                if sid not in ms or top > ms[sid]:
+                    if sid in ms:                         # never announce what was reached before we looked
+                        reached_new.append((cur["name"], top))
+                    ms[sid] = top
+                    self.dirty = True
+        for name, n in reached_new:
+            self.discord.post(f"{E['zombie']} **{md(name)}** has put down {n:,} walkers", "milestones", server.id)
+
+    def week_base(self, server, start, now):
+        """Every player's lifetime numbers when the week began: from the first full backup made after that
+        moment (ServerDeck backs SCUM up before every restart), else the numbers right now."""
+        dest = Path((server.cfg.get("backup") or {}).get("dest") or "")
+        prefix, stamp = f"serverdeck_{server.id}_", datetime.fromtimestamp(start).strftime("%Y%m%d_%H%M%S")
+        later = sorted(p for p in dest.glob(f"{prefix}*.zip") if p.name[len(prefix):len(prefix) + 15] >= stamp) \
+            if dest.name else []
+        for z in later[:1]:
+            try:
+                got = scum_stats_from_backup(z)
+                if got is not None:
+                    log.info("weekly stats: start-of-week numbers from %s", z.name)
+                    return {sid: {k: v[k] for k in STATS} for sid, v in got.items()}
+            except (OSError, zipfile.BadZipFile, sqlite3.Error) as e:
+                log.warning("weekly stats: could not read %s: %s", z.name, e)
+        return {sid: {k: v[k] for k in STATS} for sid, v in now.items()}
 
     # ---- events ----
     def events(self, server):
@@ -648,14 +725,14 @@ class Community:
 
     def leaderboard_text(self, week, since, until):
         players = list(week.get("players", {}).values())
-        if not any(p["walkers"] or p["quests"] or p["fame"] for p in players):
+        if not any(p.get(k, 0) > 0 for p in players for k in ("walkers", "quests", "fame")):
             return None
         title = self.cfg.get("leaderboard_title", "Weekly leaderboard")
         out = [f"{E['trophy']} **{md(title)}** - {since:%b %d} to {until:%b %d}"]
         for key, title, unit, n, icon in (("walkers", "Walker hunters", "walkers", 10, E["zombie"]),
                                            ("quests", "Quest runners", "quests", 5, E["quest"]),
                                            ("fame", "Fame earned", "fame", 5, E["star"])):
-            top = sorted((p for p in players if p[key]), key=lambda p: -p[key])[:n]
+            top = sorted((p for p in players if p.get(key, 0) > 0), key=lambda p: -p[key])[:n]
             if top:
                 out.append(f"\n{icon} **{title}**")
                 out += [f"{i}. {md(p['name'])} - {int(round(p[key])):,} {unit if int(round(p[key])) != 1 else unit.rstrip('s')}"
@@ -685,7 +762,8 @@ class Community:
             st = json.loads(json.dumps(self.settings()))
         d = st["discord"]
         week = st["week"]
-        players = sorted(week.get("players", {}).values(), key=lambda p: (-p["walkers"], -p["quests"], -p["fame"]))
+        players = sorted(week.get("players", {}).values(),
+                         key=lambda p: (-p.get("walkers", 0), -p.get("quests", 0), -p.get("fame", 0)))
         tips_cfg = {}
         for s in self.mgr.servers:
             if s.cfg.get("tips"):

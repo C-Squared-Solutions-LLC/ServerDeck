@@ -760,8 +760,8 @@ function openCommunity() {
   $("#tpNote").textContent = `${tp.count || 0} tips rotate through SCUM's own announcements. SCUM loads them when it starts (every scheduled restart).`;
   const wk = c.week || {};
   $("#wkTop").innerHTML = (wk.top || []).length
-    ? `<ol style="margin:0;padding-left:20px">${wk.top.slice(0, 5).map((p) => `<li><b>${esc(p.name)}</b> - ${p.walkers} walkers, ${p.quests} quests, ${Math.round(p.fame)} fame</li>`).join("")}</ol>`
-    : "Nothing recorded yet this week (walker kills, quests and fame come from SCUM's logs).";
+    ? `<ol style="margin:0;padding-left:20px">${wk.top.slice(0, 5).map((p) => `<li><b>${esc(p.name)}</b> - ${p.walkers || 0} walkers, ${p.quests || 0} quests, ${Math.round(p.fame || 0)} fame</li>`).join("")}</ol>`
+    : "Nothing recorded yet this week (walker kills and fame come from SCUM's database, quests from its log).";
   $("#commDlg").returnValue = "";
   $("#commDlg").showModal();
 }
