@@ -173,6 +173,33 @@
   .panel label.tg { flex-direction: row; color: var(--text); }
   .panel .inline { display: flex; gap: 10px; flex-wrap: wrap; }
   .panel input[type=text] { min-width: 200px; }
+  /* player trend graph on each card */
+  .trend { display: flex; flex-direction: column; gap: 4px; }
+  .trend .thead { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: 13px; color: var(--muted); }
+  .trend .tstats { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12.5px; color: var(--muted); }
+  .trend .tstats:empty { display: none; }
+  .trend .tstats b { color: var(--text); font-weight: 600; }
+  .seg { display: inline-flex; margin-left: auto; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 2px 10px; font-size: 12px; background: transparent; color: var(--muted); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on, .seg button.on:hover:not(:disabled) { background: var(--accent); color: #fff; }
+  .tplot { position: relative; height: 64px; background: var(--chip); border-radius: 6px; overflow: hidden; cursor: crosshair; }
+  .tplot svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .tplot .area { fill: color-mix(in srgb, var(--accent) 28%, transparent); }
+  .tplot .line { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+  .tplot .down { fill: var(--bad); }
+  .tplot .grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .tplot .grid.top { stroke-dasharray: 3 3; }
+  .tplot .ymax { position: absolute; top: 1px; left: 6px; font-size: 11px; color: var(--muted); }
+  .tplot .nodata { position: absolute; top: 0; bottom: 0;
+                   background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--muted) 16%, transparent) 6px 7px); }
+  .tplot .empty { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; color: var(--muted); padding: 0 12px; text-align: center; }
+  .taxis { position: relative; height: 15px; font-size: 11px; color: var(--muted); overflow: hidden; }
+  .taxis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+  #trendTip { position: fixed; z-index: 30; pointer-events: none; background: var(--panel); color: var(--text); border: 1px solid var(--line);
+              border-radius: 7px; box-shadow: 0 4px 14px rgba(0,0,0,.18); padding: 6px 9px; font-size: 12px; line-height: 1.45; max-width: 280px; }
+  #trendTip .muted { font-size: 11.5px; }
+  #trendCursor { position: fixed; z-index: 29; pointer-events: none; width: 0; border-left: 1px solid var(--text); opacity: .45; }
 </style>
 </head>
 <body>
@@ -438,6 +465,88 @@ async function api(path, body) {
   return j;
 }
 
+// ---- player trend graph on each card: last 24 h / 48 h / week (trends.py) ----
+const TREND_RANGES = { "24h": "24 h", "48h": "48 h", "7d": "Week" };
+const TREND_H = 40;                          // SVG units high; the graph stretches to the card's width
+const trend = { range: "24h", data: {}, at: {}, loading: {} };
+try { const r = localStorage.getItem("sdTrendRange"); if (TREND_RANGES[r]) trend.range = r; } catch (e) { /* no storage: 24 h */ }
+async function loadTrends() {
+  const r = trend.range;
+  if (trend.loading[r] || Date.now() - (trend.at[r] || 0) < 60000) return;
+  trend.loading[r] = true;
+  try { trend.data[r] = await api(`/api/trends?range=${r}`); trend.at[r] = Date.now(); render(); }
+  catch (e) { /* the last graph stays; tried again with the next refresh */ }
+  finally { trend.loading[r] = false; }
+}
+const fmtAvg = (v) => (+v).toFixed(v < 10 ? 1 : 0);
+const fmtPct = (v) => v >= 0.9995 ? "100%" : (v * 100).toFixed(v > 0.99 ? 1 : 0) + "%";
+function niceMax(v) {
+  if (v <= 5) return Math.max(1, Math.ceil(v));
+  const m = Math.pow(10, Math.floor(Math.log10(v)));
+  return [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((f) => f * m).find((x) => x >= v);
+}
+function trendTicks(d) {                     // local time: every 6 h (24 h), 12 h (48 h), each midnight (week)
+  const every = { "24h": 6, "48h": 12, "7d": 24 }[d.range], span = d.end - d.start, out = [];
+  const x = new Date(d.start * 1000);
+  x.setMinutes(0, 0, 0);
+  for (; x.getTime() / 1000 < d.end; x.setHours(x.getHours() + 1)) {
+    if (x.getHours() % every) continue;
+    const pos = (x.getTime() / 1000 - d.start) / span * 100;
+    if (pos > 2 && pos < 98) out.push([pos, x.getHours() ? fmtClock(x.getTime() / 1000) : x.toLocaleDateString([], { weekday: "short" })]);
+  }
+  return out;
+}
+function trendBlock(s) {
+  const d = trend.data[trend.range], t = d && d.servers[s.id];
+  const seg = `<span class="seg" title="Players over the last 24 hours, 48 hours or week">${Object.entries(TREND_RANGES).map(([k, v]) =>
+    `<button data-act="trend" data-range="${k}" class="${k === trend.range ? "on" : ""}" aria-pressed="${k === trend.range}">${v}</button>`).join("")}</span>`;
+  if (!t) return `<div class="trend"><div class="thead"><span>Players over time</span>${seg}</div><div class="tstats"></div><div class="tplot"><div class="empty">loading...</div></div><div class="taxis"></div></div>`;
+  const pts = t.points, n = pts.length, H = TREND_H, has = pts.some((p) => p);
+  const ymax = niceMax(Math.max(0, ...pts.map((p) => p && p[0] != null ? p[0] : 0)));
+  const y = (v) => (H - 1 - v / ymax * (H - 4)).toFixed(2);
+  let area = "", line = "", down = "";
+  for (let i = 0; i < n;) {                  // most players per point, as steps; gaps where there is no record
+    if (!pts[i] || pts[i][0] == null) { i++; continue; }
+    let j = i, run = "";
+    for (; j < n && pts[j] && pts[j][0] != null; j++) { const yy = y(pts[j][0]); run += `${j === i ? "M" : "L"}${j},${yy}L${j + 1},${yy}`; }
+    line += run;
+    area += `M${i},${H}L` + run.slice(1) + `L${j},${H}Z`;
+    i = j;
+  }
+  const shade = (p) => p && p[2] != null && p[2] < 0.9 ? (0.1 + 0.3 * (1 - p[2])).toFixed(2) : null;
+  for (let i = 0; i < n;) {                  // offline: a red band, stronger the longer it was down
+    const o = shade(pts[i]);
+    let j = i + 1;
+    if (o) { while (j < n && shade(pts[j]) === o) j++; down += `<rect x="${i}" y="0" width="${j - i}" height="${H}" opacity="${o}"/>`; }
+    i = j;
+  }
+  const ticks = trendTicks(d);
+  const grid = ticks.map(([pos]) => { const x = (pos / 100 * n).toFixed(2); return `<line class="grid" x1="${x}" x2="${x}" y1="0" y2="${H}"/>`; }).join("")
+    + `<line class="grid top" x1="0" x2="${n}" y1="${y(ymax)}" y2="${y(ymax)}"/>`;
+  const stats = !has ? [] : t.uptime === 0 ? ["offline the whole time"] : [
+    t.peak ? `peak <b>${t.peak}</b> <span title="${esc(new Date(t.peak_at * 1000).toLocaleString())}">(${fmtDay(t.peak_at)})</span>` : t.peak === 0 ? "nobody on" : "",
+    t.peak && t.avg != null ? `avg <b>${fmtAvg(t.avg)}</b>` : "",
+    t.unique ? `<b>${t.unique}</b> different player${t.unique === 1 ? "" : "s"}` : "",
+    t.uptime == null ? "" : `online <b>${fmtPct(t.uptime)}</b>` + (t.uptime_from > Math.max(d.start, t.since || 0) + d.step
+      ? ` <span class="muted" title="The history filled in from the server's own log doesn't say when it was down">since ${fmtDay(t.uptime_from)}</span>` : "")];
+  if (has && t.since && t.since > d.start) stats.push(`<span title="Nothing was recorded before this (hatched)">history from ${fmtWhen(t.since)}</span>`);
+  let gaps = "";                             // no record at all (before ServerDeck watched, or while it was off): hatched
+  for (let i = 0; i < n;) {
+    if (pts[i]) { i++; continue; }
+    let j = i;
+    while (j < n && !pts[j]) j++;
+    gaps += `<div class="nodata" style="left:${(i / n * 100).toFixed(2)}%;width:${((j - i) / n * 100).toFixed(2)}%"></div>`;
+    i = j;
+  }
+  const plot = has
+    ? `${gaps}<svg viewBox="0 0 ${n} ${H}" preserveAspectRatio="none" aria-hidden="true">${grid}<g class="down">${down}</g><path class="area" d="${area}"/><path class="line" d="${line}"/></svg><span class="ymax">${ymax}</span>`
+    : `<div class="empty">No player history yet - ServerDeck notes the count every few seconds.</div>`;
+  return `<div class="trend"><div class="thead"><span>Players over time</span>${seg}</div>
+    <div class="tstats">${stats.filter(Boolean).map((x) => `<span>${x}</span>`).join("")}</div>
+    <div class="tplot" data-trend="${s.id}">${plot}</div>
+    <div class="taxis">${has ? ticks.map(([pos, label]) => `<span style="left:${pos.toFixed(2)}%">${esc(label)}</span>`).join("") : ""}</div></div>`;
+}
+
 function stateOf(s) {
   if (s.job) return ["busy", s.job.name];
   return [s.state || "unknown", { running: "online", starting: "starting", stopping: "stopping", stopped: "offline",
@@ -508,6 +617,7 @@ function card(s) {
       <div class="stat" title="Memory Windows has committed to the server - RAM plus page file (Task Manager's commit size)"><div class="k">RAM reserved</div><div class="v">${s.running ? fmtBytes(s.mem) : "-"}</div></div>
     </div>
     ${who}
+    ${notInstalled ? "" : trendBlock(s)}
     <div class="row">build <b>${esc(s.installed_build || "?")}</b>${upd ? " · " + upd : ""} · ${checked}</div>
     ${mods || sidecar || plugins ? `<div class="row">${mods} ${plugins} ${sidecar}</div>` : ""}
     <div class="row">${ports}${s.pid ? ` <span class="chip">pid ${s.pid}</span>` : ""} ${perf}</div>
@@ -565,6 +675,7 @@ let openedFromHash = false;
 async function refresh() {
   try { data = await api("/api/status"); render(); }
   catch (e) { $("#banner").innerHTML = `<div class="banner">Cannot reach ServerDeck: ${esc(e.message)}</div>`; return; }
+  loadTrends();                              // once a minute; the graphs redraw when it arrives
   // Deep link, e.g. http://127.0.0.1:8787/#logs=cs2:Sidecar
   const m = !openedFromHash && location.hash.match(/^#logs(?:=([\w-]+)(?::(.+))?)?$/);
   if (m) { openedFromHash = true; openLogs(m[1], m[2] && decodeURIComponent(m[2])); }
@@ -642,6 +753,12 @@ $("#grid").addEventListener("click", async (ev) => {
   const btn = ev.target.closest("[data-act]"); if (!btn) return;
   const id = btn.closest(".card").dataset.id, act = btn.dataset.act;
   const srv = data.servers.find((s) => s.id === id);
+  if (act === "trend") {                     // one range for every card, so they line up
+    trend.range = btn.dataset.range;
+    try { localStorage.setItem("sdTrendRange", trend.range); } catch (e) { /* not remembered */ }
+    render();
+    return loadTrends();
+  }
   if (act === "log") return openLogs(id);
   if (act === "players") return openPlayers(id);
   if (act === "backups") return openBackups(id);
@@ -664,6 +781,36 @@ $("#grid").addEventListener("change", async (ev) => {
   try { await api(`/api/servers/${id}/settings`, { [cb.dataset.set]: cb.checked }); } catch (e) { alert(e.message); }
   refresh();
 });
+
+// Trend graph tooltip: kept outside the cards, which are redrawn every 3 s.
+const trendTip = document.createElement("div"), trendCursor = document.createElement("div");
+trendTip.id = "trendTip"; trendCursor.id = "trendCursor"; trendTip.hidden = trendCursor.hidden = true;
+document.body.append(trendTip, trendCursor);
+function hideTrendTip() { trendTip.hidden = trendCursor.hidden = true; }
+function trendHover(ev) {
+  const plot = ev.target.closest && ev.target.closest(".tplot[data-trend]");
+  const d = trend.data[trend.range], t = plot && d && d.servers[plot.dataset.trend];
+  if (!t || !t.points.some((p) => p)) return hideTrendTip();
+  const r = plot.getBoundingClientRect(), n = t.points.length;
+  const i = Math.min(n - 1, Math.max(0, Math.floor((ev.clientX - r.left) / r.width * n)));
+  const p = t.points[i], t0 = d.start + i * d.step, t1 = t0 + d.step;
+  const what = !p ? `<span class="muted">no record - ServerDeck wasn't running</span>`
+    : p[2] === 0 ? "server offline"
+    : (p[0] == null ? "online - player count unknown"
+       : p[0] ? `<b>${p[0]}</b> player${p[0] === 1 ? "" : "s"} at most${p[1] != null && p[1] !== p[0] ? `, ${fmtAvg(p[1])} on average` : ""}` : "nobody on")
+      + (p[2] != null && p[2] < 0.995 ? `<br><span class="muted">offline ${Math.max(1, Math.round((1 - p[2]) * 100))}% of this time</span>` : "")
+      + (p[2] == null ? `<br><span class="muted">from the server's own login log</span>` : "");
+  trendTip.innerHTML = `${fmtDay(t0)} - ${t1 > d.now ? "now" : fmtClock(t1)}<br>${what}`;
+  trendTip.hidden = trendCursor.hidden = false;
+  const w = trendTip.offsetWidth, h = trendTip.offsetHeight;
+  trendTip.style.left = Math.max(4, Math.min(innerWidth - w - 4, ev.clientX - w / 2)) + "px";
+  trendTip.style.top = (r.top - h - 6 > 4 ? r.top - h - 6 : r.bottom + 6) + "px";
+  Object.assign(trendCursor.style, { left: r.left + (i + 0.5) / n * r.width + "px", top: r.top + "px", height: r.height + "px" });
+}
+$("#grid").addEventListener("pointermove", trendHover);
+$("#grid").addEventListener("pointerdown", trendHover);
+$("#grid").addEventListener("pointerleave", hideTrendTip);
+window.addEventListener("scroll", hideTrendTip, { passive: true });
 
 $("#checkBtn").addEventListener("click", async () => { await api("/api/check-updates", {}); setTimeout(refresh, 1500); });
 $("#deckRestartBtn").addEventListener("click", async () => {

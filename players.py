@@ -11,7 +11,8 @@ Who is online comes from what each game offers:
 
 First seen / last seen / time played: ServerDeck notes everyone it sees online (players.json, every 30 s).
 SCUM keeps its own history in SCUM.db (user_profile.creation_time and play_time, in seconds), which
-goes back further, so for SCUM that is used where it is known.
+goes back further, so for SCUM that is used where it is known; its login logs also fill in the player
+trend graph (trends.py) for the time before ServerDeck was watching.
 
 Bans go into the game's own ban list:
   SCUM             BannedUsers.ini (one SteamID64 per line). SCUM reads it when it starts and has no remote
@@ -231,6 +232,40 @@ class Scum(Game):
                 out[str(uid)] = {"name": name, "first": _iso(created), "last": max(seen) if seen else None,
                                  "played": int(played) if played is not None else None}
         return out
+
+    def sessions(self, since):
+        """(start of the oldest run on record, [(logged in, logged out)]) - the visits in the login logs that
+        ended after `since`, for the player trend graph (trends.py). There is one login log per SCUM run, named
+        after the moment it started (UTC). A visit with no "logged out" (SCUM was stopped with them on) ends
+        when the next run starts; in the run going on now it is still going (None)."""
+        pattern = (self.s.cfg.get("logs") or {}).get("login") or str(self._dir() / r"SaveFiles\Logs\login_*.log")
+        runs = sorted((calendar.timegm(time.strptime(m.group(1), "%Y%m%d%H%M%S")), f) for f in glob.glob(pattern)
+                      if (m := re.search(r"login_(\d{14})", Path(f).name)))
+        st = self.s.status
+        started = time.time() - (st.get("uptime") or 0) if st.get("running") else None
+        visits = []
+        for i, (t0, f) in enumerate(runs):
+            nxt = runs[i + 1][0] if i + 1 < len(runs) else None
+            if nxt is not None and nxt < since:
+                continue
+            on = {}
+            for line in read_text(f)[0].splitlines():
+                m = SCUM_LOGIN.match(line.strip())
+                if not m:
+                    continue
+                t = calendar.timegm(time.strptime(m.group(1), "%Y.%m.%d-%H.%M.%S"))
+                if m.group(5) == "in":
+                    on.setdefault(m.group(2), t)
+                elif m.group(2) in on:
+                    visits.append((on.pop(m.group(2)), t))
+            if nxt is not None:
+                end = nxt
+            elif started is None:
+                end = Path(f).stat().st_mtime                 # stopped: its last line
+            else:
+                end = None if t0 >= started - 120 else started   # the run going on now / one before it
+            visits += [(t, end) for t in on.values()]
+        return (runs[0][0] if runs else None), [v for v in visits if v[1] is None or v[1] >= since]
 
     # bans
     def path(self):

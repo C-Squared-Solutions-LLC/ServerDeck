@@ -27,6 +27,8 @@ Built-in templates: **SCUM**, **Space Engineers**, **Counter-Strike 2** (Metamod
 - **Players**: who is on (names on each card), how long each player has been around (first seen, time
   played), kick, ban - from one server or several at once, or their device through a sidecar - and
   admin / moderator roles, each through the game's own lists.
+- **Player trends**: a graph on each card of how many were on over the last 24 hours, 48 hours or week,
+  with the peak, the average, how many different players and how much of the time it was online.
 - **Discord feed** through a channel webhook: restarts, outages, alarms, announcements (optional
   @everyone), SCUM quest completions and a weekly leaderboard.
 - **SCUM extras**: a weekly "Blood Moon" event (horde-heavy settings for a night, switched back at
@@ -80,6 +82,12 @@ work across servers.
   minute, or for its next scheduled restart (which does warn them), 6 hours at most without a
   schedule. Players whose game has already updated can't join until then.
 - **Players** (or click a name under **Online**) - see below.
+- The **Players graph** shows how many were on over the last **24 h**, **48 h** or **Week** (the buttons
+  next to it switch every card at once): the most players at a time in each 5 / 10 / 30 minutes, red where
+  the server was offline, blank where nothing was recorded. Point at it for the details. Above it: the
+  peak, the average while online, how many different players were on and how much of the time it was
+  online. Bots don't count. ServerDeck notes the count every few seconds (`trends.json`, 8 days); SCUM's
+  graph is filled in from its login log for the time before that.
 - **Schedule** - restart every N hours from a start time, warning players N minutes ahead.
 - **Logs** (or **Logs & console**) - every log of that server: search, errors-only filter, live follow,
   download. Servers with RCON get a command line under the log.
@@ -117,7 +125,7 @@ work across servers.
 | Space Engineers | Remote API | Remote API - right away | yes | admin: `<Administrators>` in its .cfg, written while it is stopped (it rewrites that file while running); moderators in-game |
 | Counter-Strike 2 | RCON `status_json` | `banid` + `writeid` - right away, and again after every start (CS2 forgets them) | yes | CounterStrikeSharp `admins.json` (flags: `role_flags`) - from its next start |
 | Rust | RCON `playerlist` | `banid` - right away | yes | `ownerid` / `moderatorid` - right away (`users.cfg` while stopped) |
-| Palworld | REST API | REST API - right away | yes | - (admins use the admin password in game) |
+| Palworld | REST API | REST API - right away (Steam players; crossplay console players in game) | Steam players | - (admins use the admin password in game) |
 | Enshrouded | Steam query - names only | - (in game) | - | - (the group passwords) |
 
 **Servers** - add a server from a template, remove one (its files stay on disk), set the SteamCMD path
@@ -171,8 +179,8 @@ block - `{field}` placeholders are filled in, `{backup_root}` too.
 - The page has **no login** and listens on `127.0.0.1` only - keep it that way (use Remote Desktop or an
   SSH tunnel to reach it from elsewhere). Don't change `ui.host` to `0.0.0.0` on an open network.
 - `config.json` (RCON passwords, tokens), `community.json` (your Discord webhook), `players.json` (players'
-  names, Steam IDs, bans) and `state.json` stay on your PC - `.gitignore` keeps them out of git. Never
-  paste them into issues.
+  names, Steam IDs, bans), `trends.json` and `state.json` stay on your PC - `.gitignore` keeps them out of
+  git. Never paste them into issues.
 
 ## Updating ServerDeck
 
@@ -188,6 +196,7 @@ then press **Restart ServerDeck** in the page.
 | `backups.py` | config/full backups, restore, retention |
 | `community.py` | Discord feed, events (Blood Moon), SCUM notifications and tips |
 | `players.py` | who is on, first seen / time played, kicks, bans, admin and moderator roles |
+| `trends.py` | player counts over time for the graphs |
 | `setupwiz.py`, `templates/` | adding and removing servers |
 | `hooks.py` | per-game maintenance (mods after updates, SCUM notifications, Palworld/Enshrouded settings files) |
 | `steam.py`, `a2s.py`, `rcon.py`, `se_api.py`, `palworld.py`, `winproc.py` | SteamCMD, Steam queries, RCON, Space Engineers and Palworld APIs, Windows process control |

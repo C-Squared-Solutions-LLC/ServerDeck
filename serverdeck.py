@@ -1,12 +1,13 @@
 """ServerDeck - runs the game servers on a Windows PC from one web page.
 
 Servers are listed in config.json (add them from templates in the UI: SCUM, Space Engineers,
-Counter-Strike 2, Rust). ServerDeck keeps the ones that should be online running, installs game
+Counter-Strike 2, Rust, Palworld, Enshrouded). ServerDeck keeps the ones that should be online running, installs game
 updates with SteamCMD and re-applies mods afterwards (hooks.py: Metamod/CounterStrikeSharp,
 Oxide), restarts servers on a schedule with player warnings, backs up configs and worlds and
 restores them (backups.py), runs optional "sidecar" programs only while their server is online,
-watches performance, lists who is playing with kicks, bans and admin roles (players.py), and posts
-to Discord (community.py). UI: http://127.0.0.1:8787.
+watches performance, lists who is playing with kicks, bans and admin roles (players.py), graphs how
+many were on over the last day or week (trends.py), and posts to Discord (community.py).
+UI: http://127.0.0.1:8787.
 
 Run it elevated (install.ps1 sets up a scheduled task that does): Windows services and
 elevated game servers can only be controlled with admin rights.
@@ -45,6 +46,7 @@ import setupwiz  # noqa: E402
 import rcon as rconlib  # noqa: E402
 import se_api  # noqa: E402
 import steam  # noqa: E402
+import trends  # noqa: E402
 import winproc  # noqa: E402
 
 LOG_DIR = HERE / "logs"
@@ -846,7 +848,7 @@ class Server:
 
 
 class WinProcessServer(Server):
-    """A server that runs as a plain process (SCUM, CS2, Rust)."""
+    """A server that runs as a plain process (SCUM, CS2, Rust, Palworld, Enshrouded)."""
 
     def exe(self):
         return Path(self.cfg["install_dir"]) / self.cfg["exe"]
@@ -1048,6 +1050,7 @@ class Manager:
         self.events.listeners.append(self.community.on_event)
         self.backups = backups.Backups(self, HERE)
         self.players = playerslib.Players(self, HERE / "players.json")   # who's on, bans, roles
+        self.trends = trends.Trends(self, HERE / "trends.json")          # player counts for the graphs
         self.setup = setupwiz.Setup(self, HERE, self.config_path)
         hooks.HOOKS["scum_live"] = lambda s, changed=False, force=False: s.mgr.community.prestart(s)
         self.sys = {}
@@ -1138,6 +1141,8 @@ class Manager:
                         self.players.poll(s)
                         self.players.sync(s)
                     s.evaluate_health()
+                    self.trends.sample(s)
+                self.trends.flush()
                 self.evaluate_system()
             except Exception:
                 log.error("supervisor error:\n%s", traceback.format_exc())
@@ -1348,6 +1353,7 @@ class Manager:
         if busy and not force:
             return busy
         self.events.add("warn", None, "ServerDeck is restarting")
+        self.trends.flush(force=True)                   # the 5 minutes in progress
         # (`timeout` refuses to run without a console, hence the ping delay.) Started by hand
         # rather than by the scheduled task? Then relaunch the same way it is running now.
         py = Path(sys.executable)
@@ -1506,6 +1512,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_file(s.log_file(source))
         if url.path == "/api/bans":
             return self._send(200, self.mgr.players.api_bans())
+        if url.path == "/api/trends":
+            return self._send(200, self.mgr.trends.api(q.get("range", ["24h"])[0]))
         if url.path == "/api/setup":
             return self._send(200, self.mgr.setup.overview())
         m = re.fullmatch(r"/api/backups(?:/([\w-]+)(?:/(file|manifest|download))?)?", url.path)

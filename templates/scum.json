@@ -1,7 +1,7 @@
 {
   "template": "scum",
   "title": "SCUM",
-  "description": "SCUM dedicated server (Steam app 3792580). Runs as a background process; restart warnings go through SCUM's own Notifications.json. Uses SCUM's default ports (7777 UDP, 7779 TCP, 27015 UDP) - change them in config.json if you need others.",
+  "description": "SCUM dedicated server (Steam app 3792580). Runs as a background process; restart warnings go through SCUM's own Notifications.json. Who is on, first seen and time played come from its login log and database (the player graph starts with the past week); bans and admin / moderator rights go into BannedUsers.ini and AdminUsers.ini, which SCUM reads when it starts. Uses SCUM's default ports (7777 UDP, 7779 TCP, 27015 UDP) - change them in config.json if you need others.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "scum", "help": "letters, numbers, - and _ (used in links and backup folders)"},
     {"key": "name", "label": "Display name", "default": "SCUM"},
@@ -48,7 +48,13 @@
       "quests": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\quests_*.log",
       "fame points": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\famepoints_*.log",
       "violations": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\violations_*.log",
-      "gameplay": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\gameplay_*.log"
+      "gameplay": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\gameplay_*.log",
+      "event kills": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\event_kill_*.log",
+      "raid protection": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\raid_protection_*.log",
+      "chest ownership": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\chest_ownership_*.log",
+      "base destruction": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\base_building_destruction_*.log",
+      "vehicle destruction": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\vehicle_destruction_*.log",
+      "server notifications": "{install_dir}\\SCUM\\Saved\\SaveFiles\\Logs\\server_notifications_*.log"
     },
     "events": [
       {
@@ -59,9 +65,15 @@
           "scum.EncounterHordeActivationChanceMultiplier": "2.000000",
           "scum.EncounterHordeBaseCharacterAmountMultiplier": "1.200000",
           "scum.EncounterHordeGroupBaseCharacterAmountMultiplier": "1.200000",
+          "scum.EncounterHordeExtraCharacterPerPlayerMultiplier": "1.250000",
+          "scum.EncounterHordeGroupExtraCharacterPerPlayerMultiplier": "1.250000",
+          "scum.EncounterHordeExtraCharacterPlayerCapMultiplier": "1.500000",
+          "scum.EncounterHordeGroupExtraCharacterPlayerCapMultiplier": "1.500000",
+          "scum.EncounterHordeNoiseCheckCooldownMultiplier": "0.750000",
           "scum.EncounterCharacterAINoiseResponseRadiusMultiplier": "2.000000",
           "scum.PuppetHealthMultiplier": "1.200000",
           "scum.FameGainMultiplier": "2.000000",
+          "scum.WelcomeMessage": "BLOOD MOON until {end_day} {end}. The dead are restless: hordes roam, walkers hear further and take more killing. Fame x2 for survivors.",
           "scum.MessageOfTheDay": "Blood Moon until {end_day} {end} - hordes roam, fame x2. Stay quiet, stay together."
         },
         "notice_color": "220-40-40",

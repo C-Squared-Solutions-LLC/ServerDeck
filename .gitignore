@@ -4,6 +4,7 @@ config.json.bak-*
 state.json
 community.json
 players.json
+trends.json
 *.bak*
 *.tmp
 *.serverdeck-tmp
