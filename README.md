@@ -31,6 +31,8 @@ Built-in templates: **SCUM**, **Space Engineers**, **Counter-Strike 2** (Metamod
   with the peak, the average, how many different players and how much of the time it was online.
 - **Discord feed** through a channel webhook: restarts, outages, alarms, announcements (optional
   @everyone), SCUM quest completions and a weekly leaderboard.
+- **Game chat to Discord** (SCUM, Space Engineers): players asking for help or an admin ping your admins'
+  channel, and every chat message can go to a chat-log channel - each on a webhook of its own.
 - **SCUM extras**: a weekly "Blood Moon" event (horde-heavy settings for a night, switched back at
   dawn), rotating survival tips, player counts and server FPS from its log.
 
@@ -136,6 +138,16 @@ work across servers.
   Copy Webhook URL) and press Connect. Choose what gets posted - restarts and updates, struggling alarms,
   events, quest completions, the weekly leaderboard - and for which servers.
 - **Announcement**: write a post (Discord formatting works), optionally ping @everyone, press Post.
+- **Game chat → Discord** (SCUM reads its chat log, Space Engineers its Remote API):
+  - *Admin alerts*: a chat message with one of the alert words (`admin*`, `help`, `stuck`, `cheat*`, ... -
+    whole words, any case, `*` = any ending; edit the list and try messages in the dialog) is posted to
+    your admins' channel with a ping (`@here` by default, or `@everyone`, a role `<@&id>`, a person
+    `<@id>`; one ping per player per 5 minutes) and shows up in the Activity list. Messages from players on
+    the server's admin list, SCUM's Admin channel and commands (`#...`, `/...`) don't raise alerts.
+  - *Chat log*: every message, a few lines per post.
+  - Each needs **its own webhook in its own channel**, apart from the server-news one: ServerDeck refuses a
+    webhook another of the three uses, or one that posts into the same channel. Player text is posted as
+    plain text - no pings, formatting tricks or link previews.
 - **Blood Moon** (SCUM): turn it on and pick the night; ServerDeck restarts SCUM into the horde settings
   and back out at the end, warning players before.
 - **Survival tips** (SCUM): rotating messages in game every N minutes - edit the list in config.json.
@@ -178,7 +190,7 @@ block - `{field}` placeholders are filled in, `{backup_root}` too.
 
 - The page has **no login** and listens on `127.0.0.1` only - keep it that way (use Remote Desktop or an
   SSH tunnel to reach it from elsewhere). Don't change `ui.host` to `0.0.0.0` on an open network.
-- `config.json` (RCON passwords, tokens), `community.json` (your Discord webhook), `players.json` (players'
+- `config.json` (RCON passwords, tokens), `community.json` (your Discord webhooks), `players.json` (players'
   names, Steam IDs, bans), `trends.json` and `state.json` stay on your PC - `.gitignore` keeps them out of
   git. Never paste them into issues.
 
@@ -195,6 +207,7 @@ then press **Restart ServerDeck** in the page.
 | `web/index.html` | the page |
 | `backups.py` | config/full backups, restore, retention |
 | `community.py` | Discord feed, events (Blood Moon), SCUM notifications and tips |
+| `chat.py` | game chat: admin alerts and a chat log, each to its own Discord webhook |
 | `players.py` | who is on, first seen / time played, kicks, bans, admin and moderator roles |
 | `trends.py` | player counts over time for the graphs |
 | `setupwiz.py`, `templates/` | adding and removing servers |

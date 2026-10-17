@@ -139,6 +139,7 @@
   .form pre { margin: 0; padding: 8px 10px; background: var(--chip); border-radius: 7px; max-height: 220px; overflow: auto;
               font: 12px/1.5 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; }
   .form input[type=password], .form input[type=text] { width: 100%; }
+  .form .hook { border-top: 1px dashed var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
   .chip.blood { background: #8c1023; color: #fff; font-weight: 600; }
   .chip.bloodsoon { color: #d64545; }
   .okmsg { color: var(--ok); } .errmsg { color: var(--bad); }
@@ -368,6 +369,52 @@
         <button type="button" id="lbPost">Post it now</button>
       </div>
       <pre id="lbText" hidden></pre>
+    </fieldset>
+    <fieldset id="chSet">
+      <legend>Game chat &rarr; Discord</legend>
+      <p class="muted" id="chSources"></p>
+      <div class="hook">
+        <p><b>Admin alerts</b> &middot; <span id="chAlStatus"></span></p>
+        <label class="tg"><input type="checkbox" id="chAlOn"> Post players asking for help or an admin, with a ping</label>
+        <label>Webhook URL <span class="muted">(from a channel only your admins see - not the server news channel)</span>
+          <input type="password" id="chAlUrl" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
+        </label>
+        <div class="controls" style="justify-content:flex-start">
+          <button type="button" class="primary" data-chat="connect" data-target="alerts">Connect</button>
+          <button type="button" data-chat="test" data-target="alerts">Send test</button>
+          <button type="button" class="danger" data-chat="remove" data-target="alerts">Disconnect</button>
+          <span id="chAlMsg"></span>
+        </div>
+        <label>Ping <span class="muted">(@here = whoever is online in that channel; @everyone; a role as &lt;@&amp;id&gt; - type \@RoleName in Discord to see it; empty = no ping)</span>
+          <input type="text" id="chMention" placeholder="@here" autocomplete="off">
+        </label>
+        <label>Alert words <span class="muted">(comma-separated; whole words, any case; admin* also matches admins, administrator)</span>
+          <textarea id="chWords" rows="2" spellcheck="false"></textarea>
+        </label>
+        <label>Try a message <span class="muted">(checks the words above - nothing is posted)</span>
+          <input type="text" id="chTry" placeholder="e.g. any admins on? my car is stuck" autocomplete="off">
+        </label>
+        <p id="chTryMsg" class="muted"></p>
+      </div>
+      <div class="hook">
+        <p><b>Chat log</b> &middot; <span id="chLgStatus"></span></p>
+        <label class="tg"><input type="checkbox" id="chLgOn"> Post every chat message</label>
+        <label>Webhook URL <span class="muted">(another channel again - not the admin alerts' or the server news')</span>
+          <input type="password" id="chLgUrl" placeholder="https://discord.com/api/webhooks/..." autocomplete="off">
+        </label>
+        <div class="controls" style="justify-content:flex-start">
+          <button type="button" class="primary" data-chat="connect" data-target="log">Connect</button>
+          <button type="button" data-chat="test" data-target="log">Send test</button>
+          <button type="button" class="danger" data-chat="remove" data-target="log">Disconnect</button>
+          <span id="chLgMsg"></span>
+        </div>
+      </div>
+      <div class="hook"><p class="muted">Watch the chat of:</p><div class="checks" id="chServers"></div></div>
+      <div><p class="muted">Recent help requests:</p><div id="chRecent" class="muted"></div></div>
+      <p class="muted">Server news, admin alerts and the chat log each need their own webhook in their own channel: ServerDeck refuses
+        a webhook that one of the others uses or that posts into the same channel. Messages from the server's own admins and
+        moderators, SCUM's Admin channel and commands don't raise alerts; a player's next request within 5 minutes is posted
+        without a ping.</p>
     </fieldset>
     <fieldset id="bmSet">
       <legend id="bmLegend">Blood Moon (SCUM)</legend>
@@ -949,6 +996,7 @@ function openCommunity() {
   const tp = c.tips || {};
   $("#tpEnabled").checked = tp.enabled !== false; $("#tpEvery").value = String(tp.every_minutes || 30);
   $("#tpNote").textContent = `${tp.count || 0} tips rotate through SCUM's own announcements. SCUM loads them when it starts (every scheduled restart).`;
+  chatFill();
   const wk = c.week || {};
   $("#wkTop").innerHTML = (wk.top || []).length
     ? `<ol style="margin:0;padding-left:20px">${wk.top.slice(0, 5).map((p) => `<li><b>${esc(p.name)}</b> - ${p.walkers || 0} walkers, ${p.quests || 0} quests, ${Math.round(p.fame || 0)} fame</li>`).join("")}</ol>`
@@ -1002,9 +1050,82 @@ $("#commDlg").addEventListener("close", async () => {
   if (ev) body.events = { [ev.id]: { enabled: $("#bmEnabled").checked, weekday: +$("#bmDay").value,
     start: $("#bmStart").value || "18:00", hours: +$("#bmHours").value || 12 } };
   try { const j = await api("/api/community", body); if (j.note) alert(j.note); } catch (e) { alert(e.message); }
+  if (((data.chat || {}).sources || []).length) {
+    const chat = { action: "save", alerts_on: $("#chAlOn").checked, log_on: $("#chLgOn").checked,
+      mention: $("#chMention").value.trim(), words: chatWords(),
+      servers: [...$("#chServers").querySelectorAll("input[data-chsrv]")].filter((cb) => cb.checked).map((cb) => cb.dataset.chsrv) };
+    try { await api("/api/chat", chat); } catch (e) { alert(`Game chat settings not saved: ${e.message}`); }
+  }
   refresh();
 });
 $("#communityBtn").addEventListener("click", () => data && openCommunity());
+
+// ---- game chat -> Discord: admin alerts + chat log, each on its own webhook (chat.py) ----
+const CHAT_UI = { alerts: { status: "#chAlStatus", msg: "#chAlMsg", url: "#chAlUrl", name: "admin alerts" },
+  log: { status: "#chLgStatus", msg: "#chLgMsg", url: "#chLgUrl", name: "chat log" } };
+const chatWords = () => $("#chWords").value.split(",").map((w) => w.trim()).filter(Boolean);
+function chatStatus() {
+  const c = data.chat || {};
+  for (const [t, ui] of Object.entries(CHAT_UI)) {
+    const d = c[t] || {};
+    $(ui.status).innerHTML = d.configured
+      ? `<span class="okmsg">connected</span>${d.sent ? ` · ${d.sent} sent since ServerDeck started` : ""}${d.last_error ? ` · <span class="errmsg">last problem: ${esc(d.last_error)}</span>` : ""}`
+      : `<span class="muted">not connected</span>`;
+    for (const b of $("#chSet").querySelectorAll(`button[data-target="${t}"]:not([data-chat="connect"])`)) b.disabled = !d.configured;
+  }
+}
+function chatFill() {
+  const c = data.chat || {}, src = c.sources || [];
+  $("#chSet").hidden = !src.length;
+  if (!src.length) return;
+  chatStatus();
+  $("#chSources").textContent = "Reads " + src.map((s) => `${s.name}${/s$/i.test(s.name) ? "'" : "'s"} ${s.kind}${s.error ? " (not readable right now)" : ""}`).join(" and ")
+    + ". Help requests also show up in ServerDeck's event list, with or without Discord.";
+  $("#chAlOn").checked = (c.alerts || {}).on !== false;
+  $("#chLgOn").checked = (c.log || {}).on !== false;
+  for (const ui of Object.values(CHAT_UI)) { $(ui.url).value = ""; $(ui.msg).textContent = ""; }
+  $("#chMention").value = c.mention ?? "@here";
+  $("#chWords").value = (c.words || []).join(", ");
+  $("#chTry").value = ""; $("#chTryMsg").textContent = "";
+  $("#chServers").innerHTML = src.map((s) =>
+    `<label class="tg"><input type="checkbox" data-chsrv="${s.id}" ${(c.servers || []).includes(s.id) ? "checked" : ""}> ${esc(s.name)}</label>`).join("");
+  const rec = c.recent || [];
+  $("#chRecent").innerHTML = rec.length
+    ? `<ul style="margin:0;padding-left:20px">${rec.slice(0, 5).map((r) =>
+        `<li>${fmtDay(r.t)} <b>${esc(r.name)}</b> on ${esc(r.server_name)} (${esc(r.channel)}): ${esc(r.text)}</li>`).join("")}</ul>`
+    : "None since ServerDeck started.";
+}
+$("#chSet").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-chat]");
+  if (!b) return;
+  const act = b.dataset.chat, target = b.dataset.target, ui = CHAT_UI[target], body = { action: act, target };
+  if (act === "connect") {
+    body.url = $(ui.url).value.trim();
+    if (!body.url) { $(ui.msg).className = "errmsg"; $(ui.msg).textContent = "paste the webhook URL first"; return; }
+  }
+  if (act === "remove" && !confirm(`Disconnect the ${ui.name} webhook? ServerDeck stops posting there.`)) return;
+  $(ui.msg).className = ""; $(ui.msg).textContent = "working...";
+  try {
+    await api("/api/chat", body);
+    $(ui.msg).className = "okmsg";
+    $(ui.msg).textContent = { connect: "connected - a test message was posted", test: "test message sent", remove: "disconnected" }[act];
+    if (act === "connect") $(ui.url).value = "";
+    await refresh(); chatStatus();
+  } catch (err) { $(ui.msg).className = "errmsg"; $(ui.msg).textContent = err.message; }
+});
+let chatTryTimer = null;
+$("#chTry").addEventListener("input", () => {
+  clearTimeout(chatTryTimer);
+  chatTryTimer = setTimeout(async () => {
+    const text = $("#chTry").value.trim();
+    if (!text) { $("#chTryMsg").className = "muted"; $("#chTryMsg").textContent = ""; return; }
+    try {
+      const j = await api("/api/chat", { action: "try", text, words: chatWords() });
+      $("#chTryMsg").className = j.match ? "okmsg" : "muted";
+      $("#chTryMsg").textContent = j.match ? `would alert the admins (matched "${j.match}")` : "no alert";
+    } catch (err) { $("#chTryMsg").className = "errmsg"; $("#chTryMsg").textContent = err.message; }
+  }, 250);
+});
 
 // ---- configs & backups dialog --------------------------------------------------
 const bk = { target: null, tab: "files", data: null, overview: null, editing: null, restoreOpen: null };

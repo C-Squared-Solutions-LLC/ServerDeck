@@ -10,8 +10,8 @@
   completions and walker-kill milestones, and a weekly leaderboard (walkers, quests, fame - walkers and
   fame from SCUM's own database, quests from its log).
 
-The webhook URL is a secret: it is kept only in state.json, never logged, never sent back to
-the browser.
+The webhook URL is a secret: it is kept only in community.json, never logged, never sent back to
+the browser. In-game chat (admin alerts, a chat log) goes to webhooks of its own - chat.py.
 """
 import json
 import logging
@@ -155,14 +155,17 @@ class Event:
 # --------------------------------------------------------------------------
 
 class Discord:
-    def __init__(self, community):
+    def __init__(self, community, webhook=None):
         self.c = community
+        self._webhook = webhook        # where this one posts: the feed's webhook unless given (chat.py has two more)
         self.q = queue.Queue(maxsize=200)
         self.last_error = None
         self.last_ok = None
         self.sent = 0
 
     def webhook(self):
+        if self._webhook:
+            return self._webhook()
         return (self.c.settings().get("discord") or {}).get("webhook")
 
     def wants(self, feed, server_id=None):
@@ -172,20 +175,26 @@ class Discord:
         return server_id is None or server_id in d.get("servers", [])
 
     def post(self, text, feed, server_id=None):
-        if not self.wants(feed, server_id):
-            return
+        if self.wants(feed, server_id):
+            self.queue(text)
+
+    def queue(self, text, **kw):
         try:
-            self.q.put_nowait(text)
+            self.q.put_nowait((text, kw))
         except queue.Full:
             log.warning("discord queue full - message dropped")
 
-    def send(self, text, ping_everyone=False):
+    def send(self, text, ping_everyone=False, allowed=None, no_embeds=False):
         url = self.webhook()
         if not url:
             return False, "no webhook configured"
-        # Mentions stay off (player names are user input) - except an announcement that asks for @everyone.
-        body = json.dumps({"content": text[:1990], "username": self.c.cfg.get("discord_username", "ServerDeck"),
-                           "allowed_mentions": {"parse": ["everyone"] if ping_everyone else []}}).encode()
+        # Mentions stay off (player names are user input) - except an announcement that asks for @everyone
+        # and the ping of an admin alert (`allowed`: Discord's allowed_mentions).
+        msg = {"content": text[:1990], "username": self.c.cfg.get("discord_username", "ServerDeck"),
+               "allowed_mentions": allowed or {"parse": ["everyone"] if ping_everyone else []}}
+        if no_embeds:
+            msg["flags"] = 4                              # SUPPRESS_EMBEDS: no previews of links players typed
+        body = json.dumps(msg).encode()
         for attempt in range(4):
             req = urllib.request.Request(url, data=body, method="POST",
                                          headers={"Content-Type": "application/json", "User-Agent": "ServerDeck"})
@@ -213,8 +222,8 @@ class Discord:
 
     def worker(self):
         while True:
-            text = self.q.get()
-            ok, why = self.send(text)
+            text, kw = self.q.get()
+            ok, why = self.send(text, **kw)
             if not ok:
                 log.warning("discord: %s", why)       # never the URL
             time.sleep(1.2)                          # stay far below Discord's rate limit
@@ -789,6 +798,12 @@ class Community:
             url = str(body.get("url", "")).strip()
             if not WEBHOOK_RE.fullmatch(url):
                 return 400, {"error": "that is not a Discord webhook URL (https://discord.com/api/webhooks/...)"}
+            watch = getattr(self.mgr, "chat", None)     # admin alerts / chat log have webhooks of their own
+            if watch:
+                try:
+                    watch.check_unique("feed", url)
+                except ValueError as e:
+                    return 400, {"error": str(e)}
             with self.lock:
                 st = self.settings()
                 st["discord"]["webhook"] = url

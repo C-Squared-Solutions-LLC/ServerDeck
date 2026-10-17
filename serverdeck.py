@@ -6,7 +6,8 @@ updates with SteamCMD and re-applies mods afterwards (hooks.py: Metamod/CounterS
 Oxide), restarts servers on a schedule with player warnings, backs up configs and worlds and
 restores them (backups.py), runs optional "sidecar" programs only while their server is online,
 watches performance, lists who is playing with kicks, bans and admin roles (players.py), graphs how
-many were on over the last day or week (trends.py), and posts to Discord (community.py).
+many were on over the last day or week (trends.py), and posts to Discord (community.py) - including players
+asking for help or an admin in game chat, and optionally all of the chat, each on its own webhook (chat.py).
 UI: http://127.0.0.1:8787.
 
 Run it elevated (install.ps1 sets up a scheduled task that does): Windows services and
@@ -38,6 +39,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import a2s  # noqa: E402
 import backups  # noqa: E402
+import chat as chatlib  # noqa: E402
 import community  # noqa: E402
 import hooks  # noqa: E402
 import palworld  # noqa: E402
@@ -1051,6 +1053,7 @@ class Manager:
         self.backups = backups.Backups(self, HERE)
         self.players = playerslib.Players(self, HERE / "players.json")   # who's on, bans, roles
         self.trends = trends.Trends(self, HERE / "trends.json")          # player counts for the graphs
+        self.chat = chatlib.ChatWatch(self)                              # game chat -> admin alerts, chat log
         self.setup = setupwiz.Setup(self, HERE, self.config_path)
         hooks.HOOKS["scum_live"] = lambda s, changed=False, force=False: s.mgr.community.prestart(s)
         self.sys = {}
@@ -1104,6 +1107,7 @@ class Manager:
                              (self.schedule_loop, "scheduler")):
             threading.Thread(target=target, daemon=True, name=name).start()
         self.community.start()
+        self.chat.start()
         self.backups.start()
 
     def refresh_all(self):
@@ -1354,6 +1358,8 @@ class Manager:
             return busy
         self.events.add("warn", None, "ServerDeck is restarting")
         self.trends.flush(force=True)                   # the 5 minutes in progress
+        if self.community.dirty:
+            self.community.save()                       # incl. where each server's chat log was read up to
         # (`timeout` refuses to run without a console, hence the ping delay.) Started by hand
         # rather than by the scheduled task? Then relaunch the same way it is running now.
         py = Path(sys.executable)
@@ -1374,6 +1380,7 @@ class Manager:
             "servers": [s.summary() for s in self.servers],
             "events": self.events.recent(),
             "community": self.community.summary(),
+            "chat": self.chat.summary(),
             "first_run": not self.servers,
         }
 
@@ -1585,6 +1592,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(202, {"ok": True})
         if url.path == "/api/community":
             code, payload = self.mgr.community.api(body)
+            return self._send(code, payload)
+        if url.path == "/api/chat":
+            code, payload = self.mgr.chat.api(body)
             return self._send(code, payload)
         if url.path == "/api/bans":
             if not self.mgr.admin:
