@@ -663,6 +663,8 @@ class Community:
         name = md(srv.name) if srv else "This PC"
         if srv is None and not msg.startswith(("PC STRUGGLING", "PC recovered")):
             return
+        if srv is not None and not srv.is_installed():
+            return              # a server still being set up is nobody's news (its install, failed starts)
         text, feed = None, "restarts"
         m = re.match(r"(scheduled restart (\d\d:\d\d)|restart|auto-start|start|stop|update|auto-update): (started|done)$", msg)
         if m:

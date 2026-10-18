@@ -188,6 +188,7 @@ class Burden:
             cores = max(est[1] if est else 0.0, u_cores or 0.0)
             servers[s.id] = {
                 "name": s.name, "game": self.titles.get(name), "on": on, "known": spec is not None,
+                "installed": s.is_installed(),
                 "ram": round(ram, 2), "cores": round(cores, 2),
                 "est": {"ram": round(est[0], 2), "cores": round(est[1], 2)} if est else None,
                 "used": {"ram": round(u["ram"], 2), "cores": None if u_cores is None else round(u_cores, 2)} if u else None,

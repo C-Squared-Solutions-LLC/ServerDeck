@@ -335,12 +335,14 @@ def launch_console_hidden(cmd, cwd, env=None):
     later), detached from this process and - where Windows allows it - outside
     the scheduled task's job object, so ending/restarting ServerDeck can never
     take the game server down with it. `env`: extra environment variables.
+    Its standard input and output are that console's: a server that polls its console
+    for typed commands (CS2, Source) can't do that on NUL - CS2 logged
+    "CTextConsoleWin::GetLine: !GetNumberOfConsoleInputEvents" every tick.
     Returns (pid, broke_away)."""
     si = subprocess.STARTUPINFO()
     si.dwFlags |= STARTF_USESHOWWINDOW
     si.wShowWindow = SW_HIDE
-    kw = dict(cwd=cwd, startupinfo=si, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-              stderr=subprocess.DEVNULL, close_fds=True)
+    kw = dict(cwd=cwd, startupinfo=si, close_fds=True)
     if env:
         kw["env"] = {**os.environ, **env}
     try:

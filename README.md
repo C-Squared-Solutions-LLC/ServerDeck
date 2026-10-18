@@ -71,7 +71,9 @@ install it).
    - no SteamCMD yet? press **Download SteamCMD there**;
    - **Add a server**: pick a game, choose an install folder, adjust ports - ServerDeck opens its
      firewall ports (not the RCON port);
-   - press **Install** on the new server's card - SteamCMD downloads it;
+   - press **Install** on the new server's card - SteamCMD downloads it, and the card shows how far it is
+     (percent and GB). Servers SteamCMD can't download (Farming Simulator's comes with the game) say so on
+     their card: install the game, then press Start;
    - press **Configs** on the card for its config files.
 
 Space Engineers is different: install it, then run `DedicatedServer64\SpaceEngineersDedicated.exe` once to
@@ -92,7 +94,8 @@ work across servers.
 
 **On a server's card**
 - **Start / Stop** - Start also means "keep it online" (it is brought back if it crashes); Stop keeps it
-  off. The **keep online** and **auto-update** switches change that without starting or stopping it.
+  off. The **keep online** and **auto-update** switches change that without starting or stopping it. A
+  server that isn't installed yet isn't started (and isn't news for Discord) until it is.
 - **Restart** - now, or after warning players for 1-30 minutes (skipped if nobody is on).
 - **Update now** (**Install** for a new server) - backs it up, runs SteamCMD with file validation,
   re-applies its mods, starts it again if it was running. With auto-update on, ServerDeck checks
@@ -193,7 +196,8 @@ its burden at the player slots you enter, and whether that fits next to the serv
 - **Survival tips** (SCUM): rotating messages in game every N minutes - edit the list in config.json.
 
 **Restart ServerDeck** reloads ServerDeck itself (game servers keep running); it waits if a server is in
-the middle of something. The **Activity** list at the bottom shows everything ServerDeck did.
+the middle of something. The **Activity** list at the bottom shows everything ServerDeck did. An open
+page reloads itself when ServerDeck's page has been updated (or offers to, if a dialog is open).
 
 Handy links: `#logs=<server>`, `#backups=<server>`, `#players=<server>`, `#servers`, `#community` after
 the address, e.g. `http://127.0.0.1:8787/#backups=scum`.

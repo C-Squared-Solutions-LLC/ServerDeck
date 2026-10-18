@@ -438,6 +438,12 @@ class Server:
     def installed_build(self):
         return steam.installed_build(self.cfg["manifest"]) if self.cfg.get("manifest") else None
 
+    def is_installed(self):
+        """Its SteamCMD manifest, else its exe, is there (a service: assumed)."""
+        if self.cfg.get("manifest"):
+            return Path(self.cfg["manifest"]).exists()
+        return self.exe().exists() if self.cfg.get("exe") else True
+
     def latest_build(self):
         return self.mgr.state.get(self.id, "latest_build")
 
@@ -555,8 +561,12 @@ class Server:
                 if p.is_file():
                     preserved[p] = p.read_bytes()
             self.step(f"steamcmd app_update {self.cfg['appid']} validate")
-            ok, _ = steam.app_update(self.mgr.steamcmd, self.cfg["appid"], LOG_DIR / f"steamcmd-{self.id}.log",
-                                     install_dir=self.cfg.get("steam_install_dir"))
+            try:
+                ok, _ = steam.app_update(self.mgr.steamcmd, self.cfg["appid"], LOG_DIR / f"steamcmd-{self.id}.log",
+                                         install_dir=self.cfg.get("steam_install_dir"), progress=self._steam_progress)
+            finally:
+                if self.job is not None:
+                    self.job.pop("progress", None)
             for p, content in preserved.items():
                 if not p.exists() or p.read_bytes() != content:
                     p.write_bytes(content)
@@ -567,6 +577,13 @@ class Server:
             self.step(f"game build {before} -> {self.installed_build()}" if changed
                       else f"game files validated (build {self.installed_build()})")
         self._hooks("post_update", changed, force)
+
+    def _steam_progress(self, state, percent, done, total):
+        """SteamCMD's progress on the card - not in Activity, it changes every few seconds."""
+        if self.job is not None:
+            size = (lambda b: f"{b / 2 ** 30:.1f} GB") if total >= 2 ** 30 else (lambda b: f"{b / 2 ** 20:.0f} MB")
+            self.job["step"] = f"SteamCMD: {state} {percent:.0f}% ({size(done)} of {size(total)})"
+            self.job["progress"] = round(percent, 1)
 
     def _hooks(self, phase, changed=False, force=False):
         """Run maintenance hooks; a failing hook is reported but never keeps
@@ -861,8 +878,7 @@ class Server:
             next_restart=nr.timestamp() if (nr := self.next_restart()) else None,
             can_announce=self.can_announce(), announce=self.cfg.get("announce"),
             health=self.health, events=self.mgr.community.server_events(self),
-            installed=(Path(self.cfg["manifest"]).exists() if self.cfg.get("manifest")
-                       else self.exe().exists() if self.cfg.get("exe") else True),
+            installed=self.is_installed(), install_dir=self.cfg.get("install_dir"),
             steam_app=bool(self.cfg.get("appid")),
         )
         return st
@@ -1229,8 +1245,8 @@ class Manager:
     def _keep_alive(self, s):
         if not s.keep_online() or s.busy() or s.is_running() or s.status.get("state") == "unknown":
             return
-        if not self.can_control(s):
-            return
+        if not self.can_control(s) or not s.is_installed():
+            return          # nothing to start yet: Install (or the game's own installer) comes first
         now = time.time()
         if s.held_until > now:
             return
@@ -1418,8 +1434,13 @@ class Manager:
 
     # ---- API ---------------------------------------------------------------
     def status(self):
+        try:
+            ui = (HERE / "web" / "index.html").stat().st_mtime     # an open page reloads itself when this changes
+        except OSError:
+            ui = None
         return {
             "time": time.time(),
+            "ui": ui,
             "admin": self.admin,
             "system": self.sys,
             "system_health": self.sys_health,
@@ -1524,7 +1545,11 @@ class Manager:
             args = (warn,)
         else:
             args = (True,) if action == "update" else ()
-        if not s.run_job(action, jobs[action], *args):
+        if action == "update" and not s.cfg.get("appid"):
+            return 400, {"error": f"ServerDeck can't download {s.name} - it comes with the game: install or update "
+                                  f"the game (Steam or its own installer) into {s.cfg.get('install_dir')}"}
+        name = "install" if action == "update" and not s.is_installed() else action
+        if not s.run_job(name, jobs[action], *args):
             return 409, {"error": f"{s.name} is busy"}
         return 202, {"ok": True}
 

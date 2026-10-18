@@ -113,9 +113,36 @@ def latest_builds(steamcmd, appids):
     return result
 
 
-def app_update(steamcmd, appid, log_path, validate=True, install_dir=None, timeout=7200, attempts=3):
+PROGRESS = re.compile(r"Update state \(0x[0-9a-fA-F]+\) ([a-z][a-z ]*), progress: ([\d.]+) \((\d+) / (\d+)\)")
+
+
+def _watch(log_path, pos, stop, progress):
+    """Hand SteamCMD's newest "Update state (0x61) downloading, progress: 45.23 (a / b)" line to
+    progress(state, percent, done_bytes, total_bytes) every 2 s while it runs."""
+    carry, last = "", None
+    while not stop.wait(2):
+        try:
+            with open(log_path, "rb") as f:
+                f.seek(pos)
+                chunk = f.read()
+        except OSError:
+            continue
+        pos += len(chunk)
+        text = carry + chunk.decode("utf-8", "replace")
+        carry = text[text.rfind("\n") + 1:]                 # a line SteamCMD hasn't finished writing
+        found = [m for m in PROGRESS.findall(text[:len(text) - len(carry)]) if int(m[3])]
+        if found and found[-1] != last:
+            last = found[-1]
+            try:
+                progress(last[0], float(last[1]), int(last[2]), int(last[3]))
+            except Exception:
+                pass
+
+
+def app_update(steamcmd, appid, log_path, validate=True, install_dir=None, timeout=7200, attempts=3, progress=None):
     """Run SteamCMD app_update, retrying the transient "state is 0x..." failures
-    SteamCMD is known for. Returns (ok, tail_of_output)."""
+    SteamCMD is known for. Returns (ok, tail_of_output). progress(state, percent, done, total)
+    hears how far the download / verification is while it runs."""
     args = [steamcmd]
     if install_dir:
         args += ["+force_install_dir", str(install_dir)]
@@ -132,8 +159,18 @@ def app_update(steamcmd, appid, log_path, validate=True, install_dir=None, timeo
                 start = log.tell()
                 log.write(f"\n===== ServerDeck: app_update {appid} attempt {attempt + 1} =====\n".encode())
                 log.flush()
-                winproc.run_hidden(args, timeout=timeout, cwd=str(Path(steamcmd).parent), capture_output=False,
-                                   stdout=log, stderr=log)
+                stop = threading.Event()
+                watcher = threading.Thread(target=_watch, args=(log_path, start, stop, progress), daemon=True,
+                                           name=f"steamcmd-progress-{appid}") if progress else None
+                if watcher:
+                    watcher.start()
+                try:
+                    winproc.run_hidden(args, timeout=timeout, cwd=str(Path(steamcmd).parent), capture_output=False,
+                                       stdout=log, stderr=log)
+                finally:
+                    stop.set()
+                    if watcher:
+                        watcher.join(5)
         with open(log_path, "rb") as log:
             log.seek(start)
             text = log.read().decode("utf-8", "replace")[-8000:]

@@ -254,7 +254,7 @@ class Setup:
                 srv = self.add(str(body.get("template", "")), body.get("values") or {})
                 note = self.reload_note()
                 return 200, {"ok": True, "id": srv["id"], "name": srv["name"], "config_files": srv.get("config_files", []),
-                             "note": note}
+                             "steam_app": bool(srv.get("appid")), "install_dir": srv.get("install_dir"), "note": note}
             if action == "remove":
                 srv = self.remove(str(body.get("id", "")))
                 return 200, {"ok": True, "name": srv["name"], "note": self.reload_note()}

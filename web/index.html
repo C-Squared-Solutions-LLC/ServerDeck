@@ -33,6 +33,9 @@
   .banner { background: color-mix(in srgb, var(--warn) 15%, var(--panel)); border: 1px solid var(--warn);
             padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
   .banner > div { margin-top: 4px; }
+  #askText { white-space: pre-line; font-size: 14px; color: var(--text); }
+  #askDlg button.primary.danger { background: var(--bad); border-color: var(--bad); }
+  .job progress { display: block; width: 100%; height: 8px; margin-top: 6px; accent-color: var(--accent); }
   .banner ul { margin: 6px 0 4px 20px; padding: 0; }
   .sys .over, .sys .over b { color: var(--bad); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); gap: 16px; }
@@ -94,7 +97,7 @@
   .console { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
   .console input { flex: 1; min-width: 0; font-family: Consolas, "Cascadia Mono", monospace; }
   .muted { color: var(--muted); }
-  dialog.small { width: min(480px, 94vw); height: auto; }
+  dialog.small { width: min(480px, 94vw); height: fit-content; }   /* "auto" stretches a modal to the full window */
   .form { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; }
   .form h2 { margin: 0; font-size: 17px; }
   .form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
@@ -256,6 +259,13 @@
       <button class="primary" type="submit">Send</button>
     </form>
   </div>
+</dialog>
+<dialog id="askDlg" class="small">
+  <form method="dialog" class="form">
+    <h2 id="askTitle"></h2>
+    <p id="askText"></p>
+    <div class="controls"><button value="cancel" id="askCancel">Cancel</button><button value="ok" class="primary" id="askOk">OK</button></div>
+  </form>
 </dialog>
 <dialog id="restartDlg" class="small">
   <form method="dialog" class="form" id="restartForm">
@@ -532,10 +542,31 @@ function burdenBanner(bd) {
     <div>The ${on.length} server${on.length === 1 ? "" : "s"} turned on need about <b>${fmtGB(bd.need.ram)}</b> of memory and <b>${fmtCores(bd.need.cores)}</b> when every player slot is taken.
       This PC has ${fmtGB(bd.pc.ram)} and ${fmtCores(bd.pc.cores)}; Windows and its other programs use about ${fmtGB(bd.other.ram)} and ${fmtCores(bd.other.cores)},
       which leaves <b>${fmtGB(bd.have.ram)}</b> and <b>${fmtCores(bd.have.cores)}</b> for servers.</div>
-    <ul>${on.map((b) => `<li title="${esc(burdenTip(b))}"><b>${esc(b.name)}</b> ${burdenWhat(b)}${b.slots ? ` <span class="muted">(${b.slots} player slots${burdenMeasured(b) ? ", using more than estimated" : ""})</span>` : ""}${b.known ? "" : ` <span class="muted">(no estimate)</span>`}</li>`).join("")}</ul>
+    <ul>${on.map((b) => `<li title="${esc(burdenTip(b))}"><b>${esc(b.name)}</b> ${burdenWhat(b)}${b.slots ? ` <span class="muted">(${b.slots} player slots${burdenMeasured(b) ? ", using more than estimated" : ""})</span>` : ""}${b.known ? "" : ` <span class="muted">(no estimate)</span>`}${b.installed === false ? ` <span class="muted">- not installed yet, keep online is ticked</span>` : ""}</li>`).join("")}</ul>
     <div class="muted">To fix it: stop a server (Stop, or untick its keep online), give one fewer player slots, or close programs on this PC.
       These are estimates for full servers; a running server counts with what it really uses when that's more.</div></div>`;
 }
+
+// The page's own message boxes (the browser's alert/confirm look out of place and block the page).
+// ask() -> true when OK was pressed; tell() just informs. One at a time: a second waits for the first.
+let askQueue = Promise.resolve();
+function ask(text, { title = "", ok = "OK", cancel = "Cancel", danger = false } = {}) {
+  const show = () => new Promise((resolve) => {
+    const d = $("#askDlg");
+    $("#askTitle").textContent = title; $("#askTitle").hidden = !title;
+    $("#askText").textContent = text;
+    $("#askOk").textContent = ok; $("#askOk").classList.toggle("danger", danger);
+    $("#askCancel").textContent = cancel || ""; $("#askCancel").hidden = !cancel;
+    d.returnValue = "";
+    d.addEventListener("close", () => resolve(d.returnValue === "ok"), { once: true });
+    d.showModal();
+    $("#askOk").focus();
+  });
+  const p = askQueue.then(show);
+  askQueue = p.catch(() => {});
+  return p;
+}
+const tell = (text, title = "") => ask(text, { title, cancel: null });
 
 async function api(path, body) {
   const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-ServerDeck": "1" }, body: JSON.stringify(body) };
@@ -710,12 +741,15 @@ function card(s) {
     ${evs ? `<div class="row">${evs}</div>` : ""}
     ${s.note ? `<div class="note">${esc(s.note)}</div>` : ""}
     ${notInstalled && !busy ? (s.steam_app === false
-      ? `<div class="job">Not found yet - install the game as its template describes (Servers dialog), then press Start.</div>`
-      : `<div class="job">Not installed yet - press <b>Install</b> to download it with SteamCMD.</div>`) : ""}
-    ${s.held ? `<div class="note">Auto-restart paused after repeated crashes. Press Start to try again.</div>` : ""}
+      ? `<div class="job"><b>Not installed.</b> ServerDeck can't download this one - its server comes with the game. Install the game
+          (Steam or its own installer) so that <span class="mono">${esc(s.install_dir || "")}</span> has it, then press Start.
+          ${s.keep_online ? "ServerDeck doesn't try to start it before then." : ""}</div>`
+      : `<div class="job"><b>Not installed yet</b> - press <b>Install</b> to download it with SteamCMD.${s.keep_online ? " It starts when that's done." : ""}</div>`) : ""}
+    ${s.held && !notInstalled ? `<div class="note">Auto-restart paused after repeated crashes. Press Start to try again.</div>` : ""}
     ${busy ? `<div class="job"><b>${esc(s.job.name)}</b> — ${cd ? `restarting in <b>${fmtDur(cd - nowS)}</b> · players are being warned
         <button data-act="cancel" style="margin-left:8px">Cancel restart</button>` : esc(s.job.step || "working")}
-        <span class="muted">(${fmtDur(nowS - s.job.started)})</span>${s.pending_stop ? " · stop queued" : ""}</div>` : ""}
+        <span class="muted">(${fmtDur(nowS - s.job.started)})</span>${s.pending_stop ? " · stop queued" : ""}
+        ${s.job.progress != null ? `<progress max="100" value="${+s.job.progress}" title="${(+s.job.progress).toFixed(1)}%"></progress>` : ""}</div>` : ""}
     <div class="controls">
       <button class="primary" data-act="start" ${busy || s.running ? "disabled" : ""}>Start</button>
       <button class="danger" data-act="stop" ${!s.running && !busy ? "disabled" : ""}>Stop</button>
@@ -743,9 +777,11 @@ function render() {
     <span>RAM <b>${fmtBytes(sy.mem_used)}</b> / ${fmtBytes(sy.mem_total)}</span>${disks}${bd
     ? `<span class="${bd.over ? "over" : ""}" title="Server burden: what the servers that are turned on need when full, of what this PC has for them after Windows and its other programs (${fmtGB(bd.other.ram)}, ${fmtCores(bd.other.cores)})">Burden <b>${fmtGB(bd.need.ram)}</b> / ${fmtGB(bd.have.ram)} · <b>${(+bd.need.cores).toFixed(1)}</b> / ${fmtCores(bd.have.cores)}</span>` : ""}`);
   patch($("#burden"), bd && bd.over ? burdenBanner(bd) : "");
-  patch($("#banner"), !data.admin
+  patch($("#banner"), (data.ui != null && uiLoaded != null && data.ui !== uiLoaded
+      ? `<div class="banner">ServerDeck's page has been updated. <button class="primary" data-reload="1">Reload</button> (it reloads by itself once no dialog is open)</div>` : "")
+    + (!data.admin
     ? `<div class="banner">ServerDeck is not running elevated, so it can show status but cannot control servers. Start it from the "ServerDeck" scheduled task (install.ps1 creates it).</div>`
-    : data.first_run ? `<div class="banner">No servers yet. <button class="primary" data-first="add">Add a server</button> - pick a game, choose where it goes, then press Install on its card.</div>` : "");
+    : data.first_run ? `<div class="banner">No servers yet. <button class="primary" data-first="add">Add a server</button> - pick a game, choose where it goes, then press Install on its card.</div>` : ""));
   $("#lastcheck").textContent = "last update check: " + fmtAgo(data.last_check);
   patch($("#grid"), data.servers.map(card).join(""));
   const sickServers = data.servers.filter((s) => s.health && s.health.ok === false);
@@ -762,9 +798,16 @@ function render() {
 }
 
 let openedFromHash = false;
+let uiLoaded = null;                         // the page version this tab runs (data.ui: when index.html changed)
 async function refresh() {
-  try { data = await api("/api/status"); render(); }
+  try { data = await api("/api/status"); }
   catch (e) { $("#banner").innerHTML = `<div class="banner">Cannot reach ServerDeck: ${esc(e.message)}</div>`; return; }
+  uiLoaded ??= data.ui;
+  if (data.ui != null && data.ui !== uiLoaded && !document.querySelector("dialog[open]")) {
+    location.reload();                       // a newer page: an old one shows buttons that no longer fit
+    return;
+  }
+  render();
   loadTrends();                              // once a minute; the graphs redraw when it arrives
   // Deep link, e.g. http://127.0.0.1:8787/#logs=cs2:Sidecar
   const m = !openedFromHash && location.hash.match(/^#logs(?:=([\w-]+)(?::(.+))?)?$/);
@@ -777,9 +820,13 @@ async function refresh() {
   if (pm) { openedFromHash = true; await openPlayers(pm[1]); if (pm[2] && PL_TABS[pm[2]]) { pl.tab = pm[2]; plLoad(true); } }
 }
 
-const confirmText = {
-  stop: (n) => `Stop ${n} and keep it offline?`,
-  update: (n) => `Update ${n} now? It is backed up, updated with file validation, its mods are re-applied, and it is started again if it was running.`,
+const confirmText = {               // [text, ask() options] for the card buttons that need a yes
+  stop: (s) => [`${s.name} is stopped and kept offline until you press Start.`, { title: `Stop ${s.name}?`, ok: "Stop", danger: true }],
+  update: (s) => s.installed === false
+    ? [`SteamCMD downloads it into ${s.install_dir} - several GB, so it can take a while. The card shows how far it is, `
+       + `and ${s.keep_online ? "it starts when it's done" : "you start it afterwards"}.`, { title: `Install ${s.name}?`, ok: "Install" }]
+    : [`It is backed up, updated with file validation, its mods are re-applied, and it is started again if it was running.`,
+       { title: `Update ${s.name} now?`, ok: "Update" }],
 };
 
 // ---- restart dialog -------------------------------------------------------
@@ -800,7 +847,7 @@ function openRestart(srv) {
 }
 $("#restartDlg").addEventListener("close", async () => {
   if ($("#restartDlg").returnValue !== "ok" || !dlgServer) return;
-  try { await api(`/api/servers/${dlgServer.id}/restart`, { warn_minutes: +$("#rsWarn").value }); } catch (e) { alert(e.message); }
+  try { await api(`/api/servers/${dlgServer.id}/restart`, { warn_minutes: +$("#rsWarn").value }); } catch (e) { tell(e.message); }
   refresh();
 });
 
@@ -834,8 +881,8 @@ $("#schedDlg").addEventListener("close", async () => {
   try {
     const j = await api(`/api/servers/${dlgServer.id}/schedule`, { enabled: $("#scEnabled").checked,
       every_hours: +$("#scEvery").value, start: $("#scStart").value, warn_minutes: +$("#scWarn").value });
-    if (j.note) alert(j.note);
-  } catch (e) { alert(e.message); }
+    if (j.note) tell(j.note);
+  } catch (e) { tell(e.message); }
   refresh();
 });
 
@@ -855,20 +902,18 @@ $("#grid").addEventListener("click", async (ev) => {
   if (act === "sidecarlog") return openLogs(id, (srv.sidecar && srv.sidecar.label) || "Sidecar");
   if (act === "restart") return openRestart(srv);
   if (act === "schedule") return openSchedule(srv);
-  if (act === "cancel" && !window.confirm(`Cancel the pending restart of ${srv.name}? Players are told it was cancelled.`)) return;
-  if (act === "sidecar_restart" && !window.confirm(`Restart the ${(srv.sidecar && srv.sidecar.label) || "sidecar"} for ${srv.name}? It is back within a few seconds; the game server keeps running.`)) return;
-  if (act === "update" && srv.installed === false) {
-    if (!window.confirm(`Install ${srv.name} now? SteamCMD downloads it - several GB, so this can take a while. Watch the card for progress.`)) return;
-  } else if (confirmText[act] && !window.confirm(confirmText[act](srv.name))) return;
+  if (act === "cancel" && !await ask(`Cancel the pending restart of ${srv.name}? Players are told it was cancelled.`)) return;
+  if (act === "sidecar_restart" && !await ask(`Restart the ${(srv.sidecar && srv.sidecar.label) || "sidecar"} for ${srv.name}? It is back within a few seconds; the game server keeps running.`)) return;
+  if (confirmText[act] && !await ask(...confirmText[act](srv))) return;
   btn.disabled = true;
-  try { await api(`/api/servers/${id}/${act}`, {}); } catch (e) { alert(e.message); }
+  try { await api(`/api/servers/${id}/${act}`, {}); } catch (e) { tell(e.message); }
   refresh();
 });
 
 $("#grid").addEventListener("change", async (ev) => {
   const cb = ev.target.closest("input[data-set]"); if (!cb) return;
   const id = cb.closest(".card").dataset.id;
-  try { await api(`/api/servers/${id}/settings`, { [cb.dataset.set]: cb.checked }); } catch (e) { alert(e.message); }
+  try { await api(`/api/servers/${id}/settings`, { [cb.dataset.set]: cb.checked }); } catch (e) { tell(e.message); }
   refresh();
 });
 
@@ -904,9 +949,9 @@ window.addEventListener("scroll", hideTrendTip, { passive: true });
 
 $("#checkBtn").addEventListener("click", async () => { await api("/api/check-updates", {}); setTimeout(refresh, 1500); });
 $("#deckRestartBtn").addEventListener("click", async () => {
-  if (!window.confirm("Restart ServerDeck? Game servers keep running; the page reconnects in ~10 seconds.")) return;
+  if (!await ask("Game servers keep running; the page reconnects in about 10 seconds.", { title: "Restart ServerDeck?", ok: "Restart" })) return;
   try { await api("/api/deck/restart", {}); }
-  catch (e) { if (/wait for/.test(e.message)) alert(e.message); /* otherwise it is simply going away */ }
+  catch (e) { if (/wait for/.test(e.message)) tell(e.message); /* otherwise it is simply going away */ }
 });
 
 // ---- log viewer -------------------------------------------------------------
@@ -1064,7 +1109,7 @@ $("#dcTest").addEventListener("click", () => commCall({ action: "test" }, "test 
 $("#anPost").addEventListener("click", async () => {
   const text = $("#anText").value.trim(), ping = $("#anPing").checked;
   if (!text) { $("#anMsg").className = "errmsg"; $("#anMsg").textContent = "write something first"; return; }
-  if (!confirm(`Post this announcement to Discord${ping ? " and ping @everyone" : ""}?`)) return;
+  if (!await ask(`Post this announcement to Discord${ping ? " and ping @everyone" : ""}?`)) return;
   $("#anMsg").className = ""; $("#anMsg").textContent = "posting...";
   try {
     const j = await api("/api/community", { action: "announce", text, ping });
@@ -1072,15 +1117,15 @@ $("#anPost").addEventListener("click", async () => {
     $("#anText").value = "";
   } catch (e) { $("#anMsg").className = "errmsg"; $("#anMsg").textContent = e.message; }
 });
-$("#dcRemove").addEventListener("click", () => { if (confirm("Disconnect Discord? ServerDeck stops posting.")) commCall({ action: "remove_webhook" }, "disconnected"); });
+$("#dcRemove").addEventListener("click", async () => { if (await ask("Disconnect Discord? ServerDeck stops posting.")) commCall({ action: "remove_webhook" }, "disconnected"); });
 $("#lbPreview").addEventListener("click", async () => {
   try { const j = await api("/api/community", { action: "leaderboard_preview" }); $("#lbText").textContent = j.text; $("#lbText").hidden = false; }
-  catch (e) { alert(e.message); }
+  catch (e) { tell(e.message); }
 });
 $("#lbPost").addEventListener("click", async () => {
-  if (!confirm("Post this week's leaderboard to Discord now? The weekly one still goes out as scheduled.")) return;
+  if (!await ask("Post this week's leaderboard to Discord now? The weekly one still goes out as scheduled.")) return;
   try { const j = await api("/api/community", { action: "leaderboard_preview", post: true }); $("#lbText").textContent = j.text; $("#lbText").hidden = false; }
-  catch (e) { alert(e.message); }
+  catch (e) { tell(e.message); }
 });
 $("#commDlg").addEventListener("close", async () => {
   if ($("#commDlg").returnValue !== "ok") return;
@@ -1092,12 +1137,12 @@ $("#commDlg").addEventListener("close", async () => {
   const srv = eventServer(), ev = srv && srv.events[0];
   if (ev) body.events = { [ev.id]: { enabled: $("#bmEnabled").checked, weekday: +$("#bmDay").value,
     start: $("#bmStart").value || "18:00", hours: +$("#bmHours").value || 12 } };
-  try { const j = await api("/api/community", body); if (j.note) alert(j.note); } catch (e) { alert(e.message); }
+  try { const j = await api("/api/community", body); if (j.note) tell(j.note); } catch (e) { tell(e.message); }
   if (((data.chat || {}).sources || []).length) {
     const chat = { action: "save", alerts_on: $("#chAlOn").checked, log_on: $("#chLgOn").checked,
       mention: $("#chMention").value.trim(), words: chatWords(),
       servers: [...$("#chServers").querySelectorAll("input[data-chsrv]")].filter((cb) => cb.checked).map((cb) => cb.dataset.chsrv) };
-    try { await api("/api/chat", chat); } catch (e) { alert(`Game chat settings not saved: ${e.message}`); }
+    try { await api("/api/chat", chat); } catch (e) { tell(`Game chat settings not saved: ${e.message}`); }
   }
   refresh();
 });
@@ -1146,7 +1191,7 @@ $("#chSet").addEventListener("click", async (e) => {
     body.url = $(ui.url).value.trim();
     if (!body.url) { $(ui.msg).className = "errmsg"; $(ui.msg).textContent = "paste the webhook URL first"; return; }
   }
-  if (act === "remove" && !confirm(`Disconnect the ${ui.name} webhook? ServerDeck stops posting there.`)) return;
+  if (act === "remove" && !await ask(`Disconnect the ${ui.name} webhook? ServerDeck stops posting there.`)) return;
   $(ui.msg).className = ""; $(ui.msg).textContent = "working...";
   try {
     await api("/api/chat", body);
@@ -1174,7 +1219,7 @@ $("#chTry").addEventListener("input", () => {
 const bk = { target: null, tab: "files", data: null, overview: null, editing: null, restoreOpen: null };
 const fmtWhen = (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 async function openBackups(tid) {
-  try { bk.overview = await api("/api/backups"); } catch (e) { alert(e.message); return; }
+  try { bk.overview = await api("/api/backups"); } catch (e) { tell(e.message); return; }
   $("#bkTarget").innerHTML = bk.overview.targets.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
   bk.target = bk.overview.targets.some((t) => t.id === tid) ? tid : bk.overview.targets[0].id;
   $("#bkTarget").value = bk.target;
@@ -1257,7 +1302,7 @@ function bkDownload(kind, name) {
 $("#bkBody").addEventListener("click", async (ev) => {
   const el = ev.target.closest("button"); if (!el) return;
   if (el.dataset.edit) {
-    try { bk.editing = await api(`/api/backups/${bk.target}/file?rel=${encodeURIComponent(el.dataset.edit)}`); renderBk(); } catch (e) { alert(e.message); }
+    try { bk.editing = await api(`/api/backups/${bk.target}/file?rel=${encodeURIComponent(el.dataset.edit)}`); renderBk(); } catch (e) { tell(e.message); }
   } else if (el.dataset.dl) { bkDownload(el.dataset.dl, el.dataset.name); }
   else if (el.id === "bkBack") { bk.editing = null; loadBk(); }
   else if (el.id === "bkSaveFile") {
@@ -1272,15 +1317,15 @@ $("#bkBody").addEventListener("click", async (ev) => {
     const files = [...$("#bkRestorePanel").querySelectorAll("input[data-rel]")].filter((c) => c.checked).map((c) => c.dataset.rel);
     if (!files.length) { $("#bkRsMsg").textContent = "select at least one file"; return; }
     const restart = $("#bkRestart") ? $("#bkRestart").checked : false;
-    if (!confirm(`Restore ${files.length} file(s)${restart ? " and restart the server" : ""}? The current files are backed up first.`)) return;
+    if (!await ask(`Restore ${files.length} file(s)${restart ? " and restart the server" : ""}? The current files are backed up first.`)) return;
     try { const j = await api(`/api/backups/${bk.target}/restore`, { kind: "snapshot", name: el.dataset.name, files, restart });
           $("#bkRsMsg").className = "okmsg"; $("#bkRsMsg").textContent = `restoring ${j.files} file(s) - follow it on the server card`; setTimeout(loadBk, 3000); }
     catch (e) { $("#bkRsMsg").className = "errmsg"; $("#bkRsMsg").textContent = e.message; }
   } else if (el.dataset.restoreFull) {
     const srv = data.servers.find((s) => s.id === bk.target);
-    if (!confirm(`Restore the full backup ${el.dataset.restoreFull}?\n\n${srv ? srv.name : "The server"} is stopped, its current folders are moved aside (not deleted), the backup is unpacked and the server starts again.\n\nPlayers lose everything since this backup.`)) return;
-    try { await api(`/api/backups/${bk.target}/restore`, { kind: "full", name: el.dataset.restoreFull }); alert("Restore started - follow it on the server card."); $("#bkDlg").close(); refresh(); }
-    catch (e) { alert(e.message); }
+    if (!await ask(`Restore the full backup ${el.dataset.restoreFull}?\n\n${srv ? srv.name : "The server"} is stopped, its current folders are moved aside (not deleted), the backup is unpacked and the server starts again.\n\nPlayers lose everything since this backup.`)) return;
+    try { await api(`/api/backups/${bk.target}/restore`, { kind: "full", name: el.dataset.restoreFull }); tell("Restore started - follow it on the server card."); $("#bkDlg").close(); refresh(); }
+    catch (e) { tell(e.message); }
   } else if (el.id === "bkSaveSet") {
     try {
       await api("/api/backups/settings/save", { keep_days: +$("#bkDays").value, keep_min: +$("#bkMin").value,
@@ -1288,7 +1333,7 @@ $("#bkBody").addEventListener("click", async (ev) => {
       bk.overview = await api("/api/backups"); renderBk(); $("#bkSetMsg").className = "okmsg"; $("#bkSetMsg").textContent = "saved";
     } catch (e) { $("#bkSetMsg").className = "errmsg"; $("#bkSetMsg").textContent = e.message; }
   } else if (el.id === "bkPrune") {
-    if (!confirm(`Delete backups older than ${bk.overview.settings.keep_days} days now (the newest ${bk.overview.settings.keep_min} of each kind stay)?`)) return;
+    if (!await ask(`Delete backups older than ${bk.overview.settings.keep_days} days now (the newest ${bk.overview.settings.keep_min} of each kind stay)?`)) return;
     try { const j = await api("/api/backups/settings/prune", {}); bk.overview = await api("/api/backups"); renderBk();
           $("#bkSetMsg").className = "okmsg"; $("#bkSetMsg").textContent = `removed ${j.removed} backup(s), ${fmtBytes(j.freed)} freed`; }
     catch (e) { $("#bkSetMsg").className = "errmsg"; $("#bkSetMsg").textContent = e.message; }
@@ -1302,13 +1347,13 @@ $("#bkTabs").addEventListener("click", async (ev) => {
 });
 $("#bkTarget").addEventListener("change", () => { bk.target = $("#bkTarget").value; bk.editing = null; bk.restoreOpen = null; loadBk(); });
 $("#bkSnap").addEventListener("click", async () => {
-  try { const j = await api(`/api/backups/${bk.target}/snapshot`, {}); alert(j.name ? `Config backup made: ${j.name}` : "There are no config files to back up."); bk.tab = "snaps"; loadBk(); }
-  catch (e) { alert(e.message); }
+  try { const j = await api(`/api/backups/${bk.target}/snapshot`, {}); tell(j.name ? `Config backup made: ${j.name}` : "There are no config files to back up."); bk.tab = "snaps"; loadBk(); }
+  catch (e) { tell(e.message); }
 });
 $("#bkFull").addEventListener("click", async () => {
-  if (!confirm("Make a full backup now? The server keeps running while it is zipped (the backups made during restarts are taken while it is stopped).")) return;
-  try { await api(`/api/backups/${bk.target}/full`, {}); alert("Full backup started - follow it on the server card."); }
-  catch (e) { alert(e.message); }
+  if (!await ask("Make a full backup now? The server keeps running while it is zipped (the backups made during restarts are taken while it is stopped).")) return;
+  try { await api(`/api/backups/${bk.target}/full`, {}); tell("Full backup started - follow it on the server card."); }
+  catch (e) { tell(e.message); }
 });
 $("#bkClose").addEventListener("click", () => $("#bkDlg").close());
 $("#backupsBtn").addEventListener("click", () => data && openBackups(data.servers[0] && data.servers[0].id));
@@ -1316,7 +1361,7 @@ $("#backupsBtn").addEventListener("click", () => data && openBackups(data.server
 // ---- servers dialog: add from a template, remove, general settings ------------
 let su = null;
 async function openSetup() {
-  try { su = await api("/api/setup"); } catch (e) { alert(e.message); return; }
+  try { su = await api("/api/setup"); } catch (e) { tell(e.message); return; }
   renderSetup();
   if (!$("#setupDlg").open) { $("#setupDlg").returnValue = ""; $("#setupDlg").showModal(); }
 }
@@ -1385,7 +1430,9 @@ $("#suAdd").addEventListener("click", async () => {
   try {
     const j = await api("/api/setup/add", { template: $("#suTemplate").value, values });
     $("#suMsg").className = "okmsg";
-    $("#suMsg").innerHTML = `<b>${esc(j.name)} added.</b> ${esc(j.note)}<br>Next: press <b>Install</b> on its card (SteamCMD downloads it), then <b>Configs</b> on the card shows its config files.`;
+    $("#suMsg").innerHTML = `<b>${esc(j.name)} added.</b> ${esc(j.note)}<br>` + (j.steam_app === false
+      ? `Next: ServerDeck can't download this one - install the game (Steam or its own installer) so that <span class="mono">${esc(j.install_dir)}</span> has it, then press <b>Start</b> on its card.`
+      : `Next: press <b>Install</b> on its card (SteamCMD downloads it, the card shows how far it is), then <b>Configs</b> on the card shows its config files.`);
     setTimeout(() => { if ($("#setupDlg").open) openSetup().catch(() => {}); }, 15000);
   } catch (e) { $("#suMsg").className = "errmsg"; $("#suMsg").textContent = e.message; }
 });
@@ -1394,9 +1441,9 @@ $("#suList").addEventListener("click", async (ev) => {
   if (b.dataset.cfg) { $("#setupDlg").close(); return openBackups(b.dataset.cfg); }
   if (b.dataset.remove) {
     const s = su.servers.find((x) => x.id === b.dataset.remove);
-    if (!confirm(`Remove ${s.name} from ServerDeck?\n\nIts game files, saves and backups stay on disk - ServerDeck just stops managing it.`)) return;
-    try { const j = await api("/api/setup/remove", { id: s.id }); alert(j.note); setTimeout(() => location.reload(), 15000); }
-    catch (e) { alert(e.message); }
+    if (!await ask("Its game files, saves and backups stay on disk - ServerDeck just stops managing it.", { title: `Remove ${s.name} from ServerDeck?`, ok: "Remove", danger: true })) return;
+    try { const j = await api("/api/setup/remove", { id: s.id }); tell(j.note); setTimeout(() => location.reload(), 15000); }
+    catch (e) { tell(e.message); }
   }
 });
 $("#suSaveGeneral").addEventListener("click", async () => {
@@ -1406,12 +1453,15 @@ $("#suSaveGeneral").addEventListener("click", async () => {
 });
 $("#suInstallSteam").addEventListener("click", async () => {
   const folder = ($("#suSteamcmd").value || "C:\\steamcmd\\steamcmd.exe").replace(/\\?steamcmd\.exe$/i, "") || "C:\\steamcmd";
-  if (!confirm(`Download SteamCMD from Valve into ${folder}?`)) return;
+  if (!await ask(`Download SteamCMD from Valve into ${folder}?`)) return;
   try { await api("/api/setup/install_steamcmd", { folder }); $("#suGenMsg").className = "okmsg"; $("#suGenMsg").textContent = "downloading - it takes a minute or two (watch Activity), then restart ServerDeck"; }
   catch (e) { $("#suGenMsg").className = "errmsg"; $("#suGenMsg").textContent = e.message; }
 });
 $("#serversBtn").addEventListener("click", () => openSetup());
-$("#banner").addEventListener("click", (ev) => { if (ev.target.closest("[data-first]")) openSetup(); });
+$("#banner").addEventListener("click", (ev) => {
+  if (ev.target.closest("[data-first]")) openSetup();
+  if (ev.target.closest("[data-reload]")) location.reload();
+});
 
 // ---- players dialog: who's on, how long they've been around, kick / ban / roles ----
 const pl = { server: null, tab: "online", d: null, bans: null, timer: null, form: null, filter: "" };
@@ -1569,13 +1619,13 @@ $("#plBody").addEventListener("click", async (ev) => {
   const b = ev.target.closest("button"); if (!b) return;
   if (b.dataset.ban) return plBanForm(b.dataset.ban, b.dataset.name);
   if (b.dataset.kick) {
-    if (!confirm(`Kick ${b.dataset.name} from ${plSrv().name}?`)) return;
+    if (!await ask(`Kick ${b.dataset.name} from ${plSrv().name}?`)) return;
     try { await api(`/api/servers/${pl.server}/kick`, { steam_id: b.dataset.kick }); plMsg("okmsg", `${esc(b.dataset.name)} was kicked.`); }
     catch (e) { plMsg("errmsg", esc(e.message)); }
     return plLoad();
   }
   if (b.dataset.unban) {
-    if (!confirm(`Lift the ban on ${b.dataset.name || b.dataset.unban} everywhere ServerDeck banned them?`)) return;
+    if (!await ask(`Lift the ban on ${b.dataset.name || b.dataset.unban} everywhere ServerDeck banned them?`)) return;
     try { const j = await api("/api/bans", { action: "unban", steam_id: b.dataset.unban }); plMsg("", plResults(j.results)); }
     catch (e) { plMsg("errmsg", esc(e.message)); }
     return plLoad(true);
@@ -1583,14 +1633,14 @@ $("#plBody").addEventListener("click", async (ev) => {
   if (b.id === "plRoleGive") {
     const sid = $("#plRoleId").value.trim(), role = $("#plRoleSel").value;
     if (!/^7656\d{13}$/.test(sid)) return plMsg("errmsg", "Enter a SteamID64: 17 digits starting 7656.");
-    if (!confirm(`Make ${sid} ${role === "admin" ? "an admin" : "a moderator"} on ${plSrv().name}?`)) return;
+    if (!await ask(`Make ${sid} ${role === "admin" ? "an admin" : "a moderator"} on ${plSrv().name}?`)) return;
     return plSetRole(sid, $("#plRoleName").value.trim(), role);
   }
 });
 $("#plBody").addEventListener("change", async (ev) => {
   const sel = ev.target.closest("select[data-role]"); if (!sel) return;
   const role = sel.value, who = sel.dataset.name || sel.dataset.role;
-  if (!confirm(role ? `Make ${who} ${role === "admin" ? "an admin" : "a moderator"} on ${plSrv().name}?` : `Take ${who}'s ${sel.dataset.cur} role away on ${plSrv().name}?`)) {
+  if (!await ask(role ? `Make ${who} ${role === "admin" ? "an admin" : "a moderator"} on ${plSrv().name}?` : `Take ${who}'s ${sel.dataset.cur} role away on ${plSrv().name}?`)) {
     sel.value = sel.dataset.cur; return;
   }
   await plSetRole(sel.dataset.role, sel.dataset.name, role);
