@@ -2,6 +2,7 @@
   "template": "the_front",
   "title": "The Front",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 6, "ram_gb_per_player": 0.08, "cpu_cores": 1.5, "cpu_cores_per_player": 0.04, "players": 20},
   "description": "The Front dedicated server (Steam app 2612550, the Windows one). It uses four ports in a row: game, beacon, query (UDP) and a shutdown service that stays on this PC. Give your public IP so it is listed correctly, and the Steam IDs of your admins. It has no remote console, so players can't be warned before a restart (updates wait until nobody is on); stops use Ctrl+C. The launch line follows the published dedicated-server setup guides; ServerDeck hasn't run this server on real hardware. About 8 GB of RAM or more.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "thefront", "help": "letters, numbers, - and _"},
@@ -17,6 +18,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 2612550,
     "install_dir": "{install_dir}",

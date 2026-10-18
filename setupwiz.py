@@ -60,13 +60,14 @@ class Setup:
     CATEGORIES = ("Survival / crafting", "Sandbox / sim", "Shooters")
 
     def templates(self):
-        """Every template, grouped by "category" (the order of CATEGORIES, others last) for the UI."""
+        """Every template, grouped by "category" (the order of CATEGORIES, others last) for the UI, with the
+        "burden" numbers the dialog shows (burden.py)."""
         out = []
         for f in sorted(self.tdir.glob("*.json")):
             try:
                 t = json.loads(f.read_text(encoding="utf-8"))
                 out.append({**{k: t[k] for k in ("template", "title", "description", "fields")},
-                            "category": t.get("category") or "Other"})
+                            "category": t.get("category") or "Other", "burden": t.get("burden")})
             except (ValueError, KeyError):
                 pass
         order = {c: i for i, c in enumerate(self.CATEGORIES)}

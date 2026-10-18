@@ -2,6 +2,7 @@
   "template": "hl2dm",
   "title": "Half-Life 2: Deathmatch",
   "category": "Shooters",
+  "burden": {"ram_gb": 0.3, "ram_gb_per_player": 0.01, "cpu_cores": 0.2, "cpu_cores_per_player": 0.02, "players": 16},
   "description": "Half-Life 2: Deathmatch dedicated server (Steam app 232370), the 32-bit srcds.exe (SteamCMD's public download lacks complete 64-bit server files; the 32-bit server takes at most 33 players). ServerDeck sets the name and join password in server.cfg on the first start and keeps its RCON password in step, lists who is on with kicks and bans over RCON (bans go into banned_user.cfg and are applied again after every start), warns players in chat before restarts and stops it cleanly. Admins: the RCON password, or SourceMod's admins_simple.ini. Under 1 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "hl2dm", "help": "letters, numbers, - and _"},
@@ -17,6 +18,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 232370,
     "install_dir": "{install_dir}",

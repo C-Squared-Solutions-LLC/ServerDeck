@@ -2,6 +2,7 @@
   "template": "myth_of_empires",
   "title": "Myth of Empires",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 8, "ram_gb_per_player": 0.06, "cpu_cores": 1.5, "cpu_cores_per_player": 0.03, "players": 50},
   "description": "Myth of Empires dedicated server (Steam app 1794810), started the way its PrivateServerTool's start file does it - main map, local data files, game and query ports, and a shutdown service on this PC only. Give your public IP so it is listed. It has no remote console, so players can't be warned before a restart (updates wait until nobody is on); stops use Ctrl+C. Fine-tune everything else with PrivateServerTool.exe in the install folder (its settings go into the files under MOE\\Saved). ServerDeck hasn't run this server on real hardware. About 8-12 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "moe", "help": "letters, numbers, - and _"},
@@ -19,6 +20,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 1794810,
     "install_dir": "{install_dir}",

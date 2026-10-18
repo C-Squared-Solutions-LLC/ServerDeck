@@ -2,6 +2,7 @@
   "template": "space_engineers",
   "title": "Space Engineers",
   "category": "Sandbox / sim",
+  "burden": {"ram_gb": 3, "ram_gb_per_player": 0.05, "cpu_cores": 1, "cpu_cores_per_player": 0.03, "players": 16, "note": "worlds with many ships and stations need a lot more of both"},
   "description": "Space Engineers dedicated server (Steam app 298740), run as the Windows service its configurator creates. Install it here first, then run DedicatedServer64\\SpaceEngineersDedicated.exe once to create your world and the service (\"Install as service\"), and turn on the Remote API in its settings so ServerDeck can show sim speed, list who is on (kick, ban) and warn players. Admins are given from ServerDeck too (written while the server is stopped - it rewrites its config while running).",
   "fields": [
     {"key": "id", "label": "Short id", "default": "se", "help": "letters, numbers, - and _"},

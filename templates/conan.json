@@ -2,6 +2,7 @@
   "template": "conan",
   "title": "Conan Exiles (Enhanced)",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 6, "ram_gb_per_player": 0.06, "cpu_cores": 1, "cpu_cores_per_player": 0.03, "players": 40},
   "description": "Conan Exiles dedicated server (Steam app 443030) - the Unreal Engine 5 \"Enhanced\" version, which is the public branch now (the older build is Steam's conan-exiles-legacy branch). On the first start ServerDeck writes the server name, join password, admin password and slots into its ini files, and before every start keeps RCON on (only this PC can reach it - its port isn't opened) for who is on, player counts and restart warnings in chat (broadcast). Kicks, bans and admin rights: the in-game admin panel (admin password), or the RCON console under Logs & console. The world is ConanSandbox\\Saved\\game_0.db (in the backups). Stops use Ctrl+C. Uses UDP 7797/7798 and query 27025 here (the usual 7777 and 27015 are SCUM's on this PC). About 6-10 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "conan", "help": "letters, numbers, - and _"},
@@ -19,6 +20,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 443030,
     "install_dir": "{install_dir}",

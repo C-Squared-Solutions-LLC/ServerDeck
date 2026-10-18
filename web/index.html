@@ -32,6 +32,9 @@
   main { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
   .banner { background: color-mix(in srgb, var(--warn) 15%, var(--panel)); border: 1px solid var(--warn);
             padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
+  .banner > div { margin-top: 4px; }
+  .banner ul { margin: 6px 0 4px 20px; padding: 0; }
+  .sys .over, .sys .over b { color: var(--bad); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); gap: 16px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
           padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
@@ -219,6 +222,7 @@
 <main>
   <div id="alarm"></div>
   <div id="banner"></div>
+  <div id="burden"></div>
   <div class="grid" id="grid"></div>
   <section class="events">
     <h3>Activity <span class="muted" id="lastcheck"></span></h3>
@@ -294,6 +298,7 @@
       <legend>Add a server</legend>
       <label>Game<select id="suTemplate"></select></label>
       <p class="muted" id="suDesc"></p>
+      <p id="suBurden"></p>
       <div id="suFields" class="form" style="padding:0;gap:10px"></div>
       <div class="controls" style="justify-content:flex-start"><button type="button" class="primary" id="suAdd">Add server</button><span id="suMsg"></span></div>
     </fieldset>
@@ -503,6 +508,34 @@ const fmtAgo = (t) => { if (!t) return "never"; const s = Date.now() / 1000 - t;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmtClock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const fmtDay = (t) => new Date(t * 1000).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+const fmtGB = (g) => g == null ? "-" : `${g >= 9.95 ? Math.round(g) : (+g).toFixed(1)} GB`;
+const fmtCores = (c) => { if (c == null) return "-"; const r = Math.round(c * 10) / 10; return `${Number.isInteger(r) ? r : r.toFixed(1)} core${r === 1 ? "" : "s"}`; };
+
+// ---- server burden (burden.py): what the servers that are on need when full vs what this PC has for them ----
+const burdenOf = () => data && data.burden && data.burden.ready ? data.burden : null;
+const burdenWhat = (b) => `${fmtGB(b.ram)} · ${fmtCores(b.cores)}`;
+const burdenMeasured = (b) => !!(b.est && b.used && (b.ram > b.est.ram + 0.05 || b.cores > b.est.cores + 0.05));
+function burdenTip(b) {
+  const sp = b.spec, out = [];
+  if (b.est) out.push(`Estimate${b.game ? ` for ${b.game}` : ""} with ${b.slots || 0} player slots${b.slots_from === "template" ? " (the template's default)" : ""}: `
+    + `${fmtGB(b.est.ram)} and ${fmtCores(b.est.cores)}`
+    + (sp ? ` - ${sp.ram_gb} GB + ${sp.ram_gb_per_player || 0} GB per slot, ${sp.cpu_cores} + ${sp.cpu_cores_per_player || 0} cores per slot` : ""));
+  else out.push(`No estimate for this server - add "burden" to it in config.json`);
+  if (b.used) out.push(`Uses now: ${fmtGB(b.used.ram)}${b.used.cores != null ? `, ${fmtCores(b.used.cores)} (average over the last hour)` : ""} - the higher of the two counts`);
+  if (b.note) out.push(b.note[0].toUpperCase() + b.note.slice(1) + ".");
+  return out.join("\n");
+}
+function burdenBanner(bd) {
+  const on = Object.values(bd.servers).filter((b) => b.on).sort((x, y) => y.ram - x.ram);
+  const too = [bd.excess.ram > 0 ? `${fmtGB(bd.excess.ram)} of memory` : "", bd.excess.cores > 0 ? fmtCores(bd.excess.cores) : ""].filter(Boolean);
+  return `<div class="banner"><b>&#9888; More server burden is turned on than this PC can handle</b>${too.length ? ` - about ${too.join(" and ")} too much` : " - right at the limit"}.
+    <div>The ${on.length} server${on.length === 1 ? "" : "s"} turned on need about <b>${fmtGB(bd.need.ram)}</b> of memory and <b>${fmtCores(bd.need.cores)}</b> when every player slot is taken.
+      This PC has ${fmtGB(bd.pc.ram)} and ${fmtCores(bd.pc.cores)}; Windows and its other programs use about ${fmtGB(bd.other.ram)} and ${fmtCores(bd.other.cores)},
+      which leaves <b>${fmtGB(bd.have.ram)}</b> and <b>${fmtCores(bd.have.cores)}</b> for servers.</div>
+    <ul>${on.map((b) => `<li title="${esc(burdenTip(b))}"><b>${esc(b.name)}</b> ${burdenWhat(b)}${b.slots ? ` <span class="muted">(${b.slots} player slots${burdenMeasured(b) ? ", using more than estimated" : ""})</span>` : ""}${b.known ? "" : ` <span class="muted">(no estimate)</span>`}</li>`).join("")}</ul>
+    <div class="muted">To fix it: stop a server (Stop, or untick its keep online), give one fewer player slots, or close programs on this PC.
+      These are estimates for full servers; a running server counts with what it really uses when that's more.</div></div>`;
+}
 
 async function api(path, body) {
   const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-ServerDeck": "1" }, body: JSON.stringify(body) };
@@ -647,6 +680,9 @@ function card(s) {
   const cd = s.job && s.job.countdown_until;
   const sick = s.health && s.health.ok === false;
   const notInstalled = s.installed === false;
+  const bu = ((data && data.burden && data.burden.servers) || {})[s.id];
+  const burden = bu ? `<div class="row" title="${esc(burdenTip(bu))}"><span>${bu.on ? "Burden" : "Burden when on"} <b>${burdenWhat(bu)}</b></span>
+      ${bu.slots ? `<span class="muted">${bu.slots} player slots</span>` : ""}${burdenMeasured(bu) ? ` <span class="chip warn">uses more than estimated</span>` : ""}${bu.known ? "" : ` <span class="chip">no estimate</span>`}</div>` : "";
   const on = s.players_online || [];
   const who = on.length ? `<div class="row"><span>Online:</span> ${on.slice(0, 12).map((n) =>
       `<span class="chip link" data-act="players" title="Players: who's on, kick, ban, roles">${esc(n)}</span>`).join(" ")}${on.length > 12
@@ -663,6 +699,7 @@ function card(s) {
       <div class="stat" title="Physical RAM the server occupies right now (working set)"><div class="k">RAM in use</div><div class="v">${s.running && s.mem_ws != null ? fmtBytes(s.mem_ws) : "-"}</div></div>
       <div class="stat" title="Memory Windows has committed to the server - RAM plus page file (Task Manager's commit size)"><div class="k">RAM reserved</div><div class="v">${s.running ? fmtBytes(s.mem) : "-"}</div></div>
     </div>
+    ${burden}
     ${who}
     ${notInstalled ? "" : trendBlock(s)}
     ${s.steam_app === false ? `<div class="row muted">installed and updated outside ServerDeck (Steam or the game's own installer)</div>`
@@ -701,8 +738,11 @@ function render() {
   const sy = data.system || {};
   const disks = Object.keys(sy).filter((k) => k.startsWith("disk_")).sort()
     .map((k) => `<span>${k.slice(5)}: <b>${fmtBytes(sy[k].free)} free</b></span>`).join("");
+  const bd = burdenOf();
   patch($("#sys"), `<span>CPU <b>${sy.cpu != null ? sy.cpu.toFixed(0) + "%" : "-"}</b></span>
-    <span>RAM <b>${fmtBytes(sy.mem_used)}</b> / ${fmtBytes(sy.mem_total)}</span>${disks}`);
+    <span>RAM <b>${fmtBytes(sy.mem_used)}</b> / ${fmtBytes(sy.mem_total)}</span>${disks}${bd
+    ? `<span class="${bd.over ? "over" : ""}" title="Server burden: what the servers that are turned on need when full, of what this PC has for them after Windows and its other programs (${fmtGB(bd.other.ram)}, ${fmtCores(bd.other.cores)})">Burden <b>${fmtGB(bd.need.ram)}</b> / ${fmtGB(bd.have.ram)} · <b>${(+bd.need.cores).toFixed(1)}</b> / ${fmtCores(bd.have.cores)}</span>` : ""}`);
+  patch($("#burden"), bd && bd.over ? burdenBanner(bd) : "");
   patch($("#banner"), !data.admin
     ? `<div class="banner">ServerDeck is not running elevated, so it can show status but cannot control servers. Start it from the "ServerDeck" scheduled task (install.ps1 creates it).</div>`
     : data.first_run ? `<div class="banner">No servers yet. <button class="primary" data-first="add">Add a server</button> - pick a game, choose where it goes, then press Install on its card.</div>` : "");
@@ -1314,8 +1354,30 @@ function renderTemplateFields() {
     return `<label>${esc(f.label)}${f.help ? ` <span class="muted">- ${esc(f.help)}</span>` : ""}
       <input type="${type}" data-field="${esc(f.key)}" value="${esc(v)}" autocomplete="off"></label>`;
   }).join("");
+  suBurden();
+}
+function suBurden() {                        // this game's burden at the slots typed in, and whether it fits
+  const t = su && su.templates.find((x) => x.template === $("#suTemplate").value);
+  const b = t && t.burden;
+  if (!b) { $("#suBurden").innerHTML = ""; return; }
+  const f = $("#suFields").querySelector('input[data-field="max_players"], input[data-field="slots"]');
+  let n = f ? parseInt(f.value, 10) : NaN;
+  if (!(n > 0)) n = b.players || 0;
+  n = Math.min(n, 200);
+  const ram = b.ram_gb + (b.ram_gb_per_player || 0) * n, cores = b.cpu_cores + (b.cpu_cores_per_player || 0) * n;
+  const bd = burdenOf();
+  let fit = "";
+  if (bd) {
+    const r = bd.need.ram + ram, c = bd.need.cores + cores, xr = r - bd.have.ram, xc = c - bd.have.cores;
+    fit = xr > 0 || xc > 0
+      ? `<br><span class="errmsg">Too much for this PC next to the servers already on: together about ${fmtGB(r)} and ${fmtCores(c)}, and it has ${fmtGB(bd.have.ram)} and ${fmtCores(bd.have.cores)} for servers
+          - ${[xr > 0 ? fmtGB(xr) + " of memory" : "", xc > 0 ? fmtCores(xc) : ""].filter(Boolean).join(" and ")} too much. Turn another server off first, or give this one fewer player slots.</span>`
+      : `<br><span class="okmsg">Fits next to the servers already on: together about ${fmtGB(r)} of the ${fmtGB(bd.have.ram)} and ${fmtCores(c)} of the ${fmtCores(bd.have.cores)} this PC has for servers.</span>`;
+  }
+  $("#suBurden").innerHTML = `Burden when full: about <b>${fmtGB(ram)}</b> of memory and <b>${fmtCores(cores)}</b> with ${n} player slots${b.note ? ` - ${esc(b.note)}` : ""}.${fit}`;
 }
 $("#suTemplate").addEventListener("change", renderTemplateFields);
+$("#suFields").addEventListener("input", (ev) => { if (ev.target.matches('[data-field="max_players"], [data-field="slots"]')) suBurden(); });
 $("#suAdd").addEventListener("click", async () => {
   const values = {};
   for (const i of $("#suFields").querySelectorAll("input[data-field]")) values[i.dataset.field] = i.value;

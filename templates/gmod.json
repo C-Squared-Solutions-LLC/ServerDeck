@@ -2,6 +2,7 @@
   "template": "gmod",
   "title": "Garry's Mod",
   "category": "Shooters",
+  "burden": {"ram_gb": 1, "ram_gb_per_player": 0.03, "cpu_cores": 0.4, "cpu_cores_per_player": 0.03, "players": 16, "note": "addons and big maps add memory and CPU"},
   "description": "Garry's Mod dedicated server (Steam app 4020), the 32-bit build of the public branch (srcds.exe). ServerDeck sets the name and join password in server.cfg on the first start and keeps its RCON password in step, lists who is on with kicks and bans over RCON (bans go into banned_user.cfg and are applied again after every start), warns players in chat before restarts and stops it cleanly. Workshop content: give a collection ID (and a Steam Web API key in config.json's args as -authkey if the collection needs it). Admins: the RCON password, or an admin mod such as ULX (its files under Configs). A Game Server Login Token (app 4000) is optional. About 1-3 GB of RAM depending on addons.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "gmod", "help": "letters, numbers, - and _"},
@@ -20,6 +21,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 4020,
     "install_dir": "{install_dir}",

@@ -9,7 +9,8 @@ restores them (backups.py), runs optional "sidecar" programs only while their se
 watches performance, lists who is playing with kicks, bans and admin roles (players.py), graphs how
 many were on over the last day or week (trends.py), and posts to Discord (community.py) - including players
 asking for help or an admin in game chat, and optionally all of the chat, each on its own webhook (chat.py).
-UI: http://127.0.0.1:8787.
+It adds up the memory and CPU the servers that are turned on need and warns when that's more than the PC has
+(burden.py). UI: http://127.0.0.1:8787.
 
 Run it elevated (install.ps1 sets up a scheduled task that does): Windows services and
 elevated game servers can only be controlled with admin rights.
@@ -40,6 +41,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import a2s  # noqa: E402
 import backups  # noqa: E402
+import burden as burdenlib  # noqa: E402
 import chat as chatlib  # noqa: E402
 import community  # noqa: E402
 import hooks  # noqa: E402
@@ -1097,6 +1099,7 @@ class Manager:
         self.players = playerslib.Players(self, HERE / "players.json")   # who's on, bans, roles
         self.trends = trends.Trends(self, HERE / "trends.json")          # player counts for the graphs
         self.chat = chatlib.ChatWatch(self)                              # game chat -> admin alerts, chat log
+        self.burden = burdenlib.Burden(self, HERE / "templates")         # memory / CPU the servers that are on need
         self.setup = setupwiz.Setup(self, HERE, self.config_path)
         hooks.HOOKS["scum_live"] = lambda s, changed=False, force=False: s.mgr.community.prestart(s)
         self.sys = {}
@@ -1191,6 +1194,7 @@ class Manager:
                     self.trends.sample(s)
                 self.trends.flush()
                 self.evaluate_system()
+                self.burden.sample()
             except Exception:
                 log.error("supervisor error:\n%s", traceback.format_exc())
             time.sleep(5)
@@ -1419,6 +1423,7 @@ class Manager:
             "admin": self.admin,
             "system": self.sys,
             "system_health": self.sys_health,
+            "burden": self.burden.summary(),
             "last_check": self.last_check,
             "servers": [s.summary() for s in self.servers],
             "events": self.events.recent(),

@@ -2,6 +2,7 @@
   "template": "rust",
   "title": "Rust",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 8, "ram_gb_per_player": 0.04, "cpu_cores": 1, "cpu_cores_per_player": 0.03, "players": 50, "note": "a bigger map (world size) and more buildings need more memory - it grows until the next wipe"},
   "description": "Rust dedicated server (Steam app 258550) with Oxide (uMod) re-installed after every game update - your plugins, configs and data are never touched. Kicks, bans, owners and moderators go over RCON. The first start generates the map and can take 10-30 minutes.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "rust", "help": "letters, numbers, - and _"},
@@ -20,6 +21,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 258550,
     "install_dir": "{install_dir}",

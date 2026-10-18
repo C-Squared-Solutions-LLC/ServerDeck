@@ -2,6 +2,7 @@
   "template": "seven_days",
   "title": "7 Days to Die",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 6, "ram_gb_per_player": 0.25, "cpu_cores": 1, "cpu_cores_per_player": 0.15, "players": 8, "note": "a bigger generated world (8k or 10k) needs several GB more"},
   "description": "7 Days to Die dedicated server (Steam app 294420). On the first start ServerDeck writes the name, join password, slots, world and save name into serverconfig.xml, puts the saves in a UserData folder next to the server (so backups include them) and switches on the telnet console with no password - 7 Days to Die then listens on this PC only. Through it ServerDeck lists who is on (kick, ban), warns players in chat before restarts and stops cleanly (saveworld + shutdown). Its web dashboard stays off (it would take port 8080). Admins and their permission levels: serveradmin.xml under Configs. A random world (World: RWG) is generated on the first start, which can take a long while. About 4-8 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "7dtd", "help": "letters, numbers, - and _"},

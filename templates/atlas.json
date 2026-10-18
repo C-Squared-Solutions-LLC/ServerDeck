@@ -2,6 +2,7 @@
   "template": "atlas",
   "title": "ATLAS",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 7, "ram_gb_per_player": 0.1, "cpu_cores": 1.5, "cpu_cores_per_player": 0.05, "players": 20, "note": "for one grid cell; every extra cell is another server about this size"},
   "description": "ATLAS dedicated server (Steam app 1006030), run as a single grid (cell 0,0). ATLAS needs its Redis database: ServerDeck starts the copy that comes with the server (AtlasTools\\RedisDatabase) before ATLAS and leaves it running. Before the first start make ShooterGame\\ServerGrid.json describe your grid with ATLAS's ServerGridEditor: a 1x1 grid whose cell 0,0 has this PC's public address and the ports below, and the Redis password from AtlasTools\\RedisDatabase\\redis.conf. ServerDeck uses RCON (password = the admin password) for who is on (kick, ban - Steam IDs), restart warnings and clean stops (SaveWorld, DoExit). Official ATLAS servers are gone and the game gets no more updates. About 6-10 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "atlas", "help": "letters, numbers, - and _"},

@@ -2,6 +2,7 @@
   "template": "sunkenland",
   "title": "Sunkenland",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 2.5, "ram_gb_per_player": 0.15, "cpu_cores": 0.8, "cpu_cores_per_player": 0.08, "players": 8},
   "description": "Sunkenland dedicated server (Steam app 2667530). It can't create a world: make one in the game, then copy its folder (<Name>~<GUID>) from %USERPROFILE%\\AppData\\LocalLow\\Vector3 Studio\\Sunkenland\\Worlds on your gaming PC into the same folder on this PC, and give the GUID (the part after ~) below. Admins and bans are Steam IDs in AdminSteamIDs.txt / BanSteamIDs.txt inside the world folder (Configs). Join password: at most 8 characters; 3-15 players. It has no remote console or Steam query, so ServerDeck shows it online by its ports, can't list players or warn them, and stops it with Ctrl+C - keep restarts rare. About 2-4 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "sunkenland", "help": "letters, numbers, - and _"},
@@ -17,6 +18,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 2667530,
     "install_dir": "{install_dir}",

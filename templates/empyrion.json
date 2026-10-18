@@ -2,6 +2,7 @@
   "template": "empyrion",
   "title": "Empyrion - Galactic Survival",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 3, "ram_gb_per_player": 0.5, "cpu_cores": 1, "cpu_cores_per_player": 0.2, "players": 8, "note": "every planet or space area players are in runs as an extra process (counted here)"},
   "description": "Empyrion - Galactic Survival dedicated server (Steam app 530870), started without graphics. On the first start ServerDeck writes the server name, join password, slots and game name into dedicated.yaml, and before every start keeps its telnet console on (port not opened in the firewall) - for restart warnings in chat and a clean stop (saveandexit). ServerDeck sees who is on through the Steam query; kicks, bans and admin levels are telnet / in-game commands or Saves\\adminconfig.yaml (Configs). It starts a playfield server process per planet in use, so RAM grows with players: about 4-8 GB.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "empyrion", "help": "letters, numbers, - and _"},
@@ -18,6 +19,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 530870,
     "install_dir": "{install_dir}",

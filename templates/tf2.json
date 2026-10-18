@@ -2,6 +2,7 @@
   "template": "tf2",
   "title": "Team Fortress 2",
   "category": "Shooters",
+  "burden": {"ram_gb": 0.8, "ram_gb_per_player": 0.01, "cpu_cores": 0.3, "cpu_cores_per_player": 0.025, "players": 24},
   "description": "Team Fortress 2 dedicated server (Steam app 232250), 64-bit (srcds_win64.exe, or srcds.exe where a build has no 64-bit one). ServerDeck sets the name and join password in server.cfg on the first start and keeps its RCON password in step, lists who is on with kicks and bans over RCON (bans go into banned_user.cfg and are applied again after every start), warns players in chat before restarts and stops it cleanly. To show up in the public server list it needs a Game Server Login Token for app 440. Admins: the RCON password, or SourceMod's admins_simple.ini. About 1 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "tf2", "help": "letters, numbers, - and _"},
@@ -18,6 +19,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 232250,
     "install_dir": "{install_dir}",

@@ -2,6 +2,7 @@
   "template": "valheim",
   "title": "Valheim",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 2.5, "ram_gb_per_player": 0.15, "cpu_cores": 0.8, "cpu_cores_per_player": 0.08, "players": 10, "note": "10 players at most; a well-explored world needs more memory"},
   "description": "Valheim dedicated server (Steam app 896660) - two UDP ports (game port and the next one for the Steam query). Its world, logs and admin lists live in a save folder next to the server, so backups include them. The join password must be at least 5 characters and must not be part of the server name. Valheim has no remote console: players can't be warned before a restart (updates wait until nobody is on), ServerDeck sees only who is on, and bans and admins are Steam IDs in bannedlist.txt / adminlist.txt (Configs), or an admin's F5 console in game. Stops use Ctrl+C, which saves the world. Crossplay (Xbox / Game Pass) is off - add -crossplay to its arguments in config.json to turn it on. About 2-4 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "valheim", "help": "letters, numbers, - and _"},

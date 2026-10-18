@@ -2,6 +2,7 @@
   "template": "icarus",
   "title": "ICARUS",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 5, "ram_gb_per_player": 0.4, "cpu_cores": 1, "cpu_cores_per_player": 0.15, "players": 8},
   "description": "ICARUS dedicated server (Steam app 2089300). On the first start ServerDeck writes the session name, join password, slots and admin password into ServerSettings.ini, and before every start turns off its own auto-shutdown (it stops itself when nobody joins - ServerDeck keeps it online instead). Players pick or start a prospect from the lobby; admins log in in game with the admin password. It has no remote console, so players can't be warned before a restart (updates wait until nobody is on), and ServerDeck sees only who is on. Stops use Ctrl+C. The query port is 27035 here (27015 is SCUM's on this PC). About 6-10 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "icarus", "help": "letters, numbers, - and _"},
@@ -17,6 +18,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 2089300,
     "install_dir": "{install_dir}",

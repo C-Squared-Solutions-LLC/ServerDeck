@@ -2,6 +2,7 @@
   "template": "ark_ascended",
   "title": "ARK: Survival Ascended",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 12, "ram_gb_per_player": 0.1, "cpu_cores": 1.5, "cpu_cores_per_player": 0.05, "players": 20, "note": "bigger maps and lots of tamed creatures push it toward 20 GB"},
   "description": "ARK: Survival Ascended dedicated server (Steam app 2430930), BattlEye off. ServerDeck starts it with RCON on (password = the admin password) and uses it for who is on, player counts (ASA doesn't answer Steam queries), restart warnings in chat and clean stops (SaveWorld, then DoExit). Players have Epic (EOS) ids, not Steam ids: the Players list shows each id - kick or ban in the RCON console (Logs & console) with KickPlayer <id> / BanPlayer <id>. Admins: AllowedCheaterAccountIDs.txt (Configs) or the admin password in game. Uses UDP 7787 here (7777 is the usual port; SCUM has it on this PC). Heavy: plan on 12-16 GB of RAM for The Island and a long first start.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "asa", "help": "letters, numbers, - and _"},

@@ -2,6 +2,7 @@
   "template": "serious_sam_3",
   "title": "Serious Sam 3: BFE",
   "category": "Shooters",
+  "burden": {"ram_gb": 0.6, "ram_gb_per_player": 0.03, "cpu_cores": 0.25, "cpu_cores_per_player": 0.05, "players": 8},
   "description": "Serious Sam 3: BFE dedicated server (Steam app 41080) - one UDP port. Pick the game mode below (the server starts its first level); everything else is a Serious Engine setting you can add to its arguments in config.json as +name value, or put in a Lua script it runs with +exec. It has no remote console ServerDeck speaks or Steam query it uses, so ServerDeck shows it online by its port, can't list or warn players, and stops it with Ctrl+C (Croteam's way). Up to 16 players. Under 1 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "ss3", "help": "letters, numbers, - and _"},
@@ -16,6 +17,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 41080,
     "install_dir": "{install_dir}",

@@ -2,6 +2,7 @@
   "template": "ns2",
   "title": "Natural Selection 2",
   "category": "Shooters",
+  "burden": {"ram_gb": 1, "ram_gb_per_player": 0.02, "cpu_cores": 0.4, "cpu_cores_per_player": 0.04, "players": 24, "note": "wants a fast CPU core - a slow one lags before the server is full"},
   "description": "Natural Selection 2 dedicated server (Steam app 4940) - game port and the next one (Steam query), UDP. Its config, logs and downloaded mods stay in folders next to the server (so backups include the config). Its web admin is on for this PC only (http://127.0.0.1:<web port>, user admin): kicks, bans, chat and map changes are done there. ServerDeck shows who is on through the Steam query; it can't warn players before a restart (updates wait until nobody is on) and stops it with Ctrl+C. About 2-4 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "ns2", "help": "letters, numbers, - and _"},
@@ -18,6 +19,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 4940,
     "install_dir": "{install_dir}",

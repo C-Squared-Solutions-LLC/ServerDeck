@@ -2,6 +2,7 @@
   "template": "sons_of_the_forest",
   "title": "Sons of the Forest",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 4, "ram_gb_per_player": 0.25, "cpu_cores": 0.8, "cpu_cores_per_player": 0.12, "players": 8},
   "description": "Sons of the Forest dedicated server (Steam app 2465200) - three UDP ports (game, Steam query, blob sync). Its settings, saves and logs live in a userdata folder next to the server (so backups include them): ServerDeck writes dedicatedserver.cfg before the first start (name, slots, join password, game mode) and keeps its ports in step afterwards. Admins are Steam IDs in ownerswhitelist.txt (Configs). It has no remote console, so players can't be warned before a restart (updates wait until nobody is on), and ServerDeck sees only who is on. It saves every 10 minutes (SaveInterval); stops use Ctrl+C. About 4-8 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "sotf", "help": "letters, numbers, - and _"},
@@ -18,6 +19,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 2465200,
     "install_dir": "{install_dir}",

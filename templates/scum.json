@@ -2,6 +2,7 @@
   "template": "scum",
   "title": "SCUM",
   "category": "Survival / crafting",
+  "burden": {"ram_gb": 9, "ram_gb_per_player": 0.06, "cpu_cores": 1, "cpu_cores_per_player": 0.025, "players": 64, "note": "memory grows with the world (bases, vehicles) and the time since the last restart"},
   "description": "SCUM dedicated server (Steam app 3792580). Runs as a background process; restart warnings go through SCUM's own Notifications.json. Who is on, first seen and time played come from its login log and database (the player graph starts with the past week); bans and admin / moderator rights go into BannedUsers.ini and AdminUsers.ini, which SCUM reads when it starts. Uses SCUM's default ports (7777 UDP, 7779 TCP, 27015 UDP) - change them in config.json if you need others.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "scum", "help": "letters, numbers, - and _ (used in links and backup folders)"},

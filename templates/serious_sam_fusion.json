@@ -2,6 +2,7 @@
   "template": "serious_sam_fusion",
   "title": "Serious Sam Fusion 2017",
   "category": "Shooters",
+  "burden": {"ram_gb": 1, "ram_gb_per_player": 0.05, "cpu_cores": 0.3, "cpu_cores_per_player": 0.06, "players": 8},
   "description": "Serious Sam Fusion 2017 dedicated server (Steam app 564390, 64-bit) - one UDP port; it hosts the Serious Sam games Fusion includes. Pick the game mode below; everything else is a Serious Engine setting you can add to its arguments in config.json as +name value (e.g. +level \"<path>\"), or put in a Lua script it runs with +exec. It has no remote console ServerDeck speaks or Steam query it uses, so ServerDeck shows it online by its port, can't list or warn players, and stops it with Ctrl+C (Croteam's way). Up to 16 players. About 1-2 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "ssfusion", "help": "letters, numbers, - and _"},
@@ -16,6 +17,7 @@
   "server": {
     "id": "{id}",
     "name": "{name}",
+    "max_players": "{max_players}",
     "type": "win_process",
     "appid": 564390,
     "install_dir": "{install_dir}",

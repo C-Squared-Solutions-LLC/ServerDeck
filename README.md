@@ -33,6 +33,10 @@ Pure Python standard library - nothing to `pip install`.
   restart without warnings, and their updates wait until nobody is on.
 - **"Struggling" alarm**: the page turns red when a server stops answering or its tick rate drops, or
   the PC runs out of RAM/CPU.
+- **Server burden**: every template estimates the memory and CPU a full server of its game needs.
+  ServerDeck adds up the servers that are turned on and puts up a banner when that's more than the PC has
+  left after Windows and your other programs - how much too much, and what each server needs. The
+  Add-a-server dialog says whether a new one fits.
 - **Configs & backups**: a link to every server's config files (view, edit, download). Config files are
   backed up before every start, restart, update and edit (when they changed), daily, and on demand;
   restore all of them or single files. Full backups (worlds + configs) before restarts/updates, with a
@@ -109,6 +113,21 @@ work across servers.
 - **Configs** - its config files and backups (below).
 - The chips show players, server FPS or sim speed, open ports, mods, the sidecar and upcoming events.
   A red card (and a red page) means it is struggling - the reason is written on it.
+- **Burden** - the memory and CPU the server needs with every player slot taken (point at it for how
+  that's worked out). "Uses more than estimated" means it really does, and that's what counts.
+
+**Server burden** - the top bar shows what the servers that are turned on (keep online ticked, or running)
+need of what this PC has for them; more than that brings up a banner with the difference and the list.
+- A server's burden is its template's estimate for its player slots: memory = `ram_gb` +
+  `ram_gb_per_player` x slots, CPU = `cpu_cores` + `cpu_cores_per_player` x slots (cores kept busy). The slots
+  are what the server reports while it runs (remembered for while it's off), else its `max_players`, else
+  the template's. A running server counts with what it really uses when that's more: its memory now, with
+  any processes it started, and its CPU averaged over the last hour.
+- What the PC has for servers: its RAM and logical processors minus what everything else uses - Windows,
+  Steam, browsers - measured, the median of the last 30 minutes (so opening a program for a moment doesn't
+  change it).
+- The estimates are rough and assume a full server; worlds, maps and mods change them a lot. Put your own
+  numbers in a server's config entry (`burden`, below) if you know better.
 
 **Configs & backups**
 - **Config files** - every file in the server's `config_files` list: **View / edit** (saving backs the
@@ -151,7 +170,8 @@ work across servers.
 | The Front, Myth of Empires, Sunkenland, Serious Sam 3 / Fusion, Farming Simulator | - (no query ServerDeck can use) | - | - | - |
 
 **Servers** - add a server from a template, remove one (its files stay on disk), set the SteamCMD path
-(or download SteamCMD) and the backups folder. ServerDeck restarts itself to load changes.
+(or download SteamCMD) and the backups folder. ServerDeck restarts itself to load changes. Each game shows
+its burden at the player slots you enter, and whether that fits next to the servers already on.
 
 **Community**
 - **Discord**: paste a channel webhook URL (channel settings > Integrations > Webhooks > New Webhook >
@@ -206,6 +226,7 @@ one entry - the templates in `templates/` show every option. The most useful one
 | `cwd` | working folder relative to `install_dir` (default: the exe's folder) |
 | `raw_args` | `true`: `args` go on the command line exactly as written - Unreal's `-Key="Value with spaces"` needs that |
 | `extra_ports` | ports opened in the firewall but not required for "online" (Farming Simulator's game port) |
+| `burden` | your own numbers for its server burden, over the template's (all or some): `{"ram_gb": 10, "ram_gb_per_player": 0.05, "cpu_cores": 2, "cpu_cores_per_player": 0.03}`; `max_players` is the slot count used until the server has reported its own |
 
 `backups` (top level) sets the backup folder and retention, `community` the Discord name and
 leaderboard; both are also editable in the UI.
@@ -214,7 +235,9 @@ leaderboard; both are also editable in the UI.
 block - `{field}` placeholders are filled in, `{backup_root}`, `{userprofile}` and `{documents}` too, and
 `{port+1}` adds to a number field. In `args`, an empty optional setting is left out (`"-password", ""` or
 `"-Name={field}"`). A field can be `"required": true`. `category` puts the template in a group of the
-Add-a-server list.
+Add-a-server list. `burden` estimates a full server of the game (`ram_gb`, `ram_gb_per_player`,
+`cpu_cores`, `cpu_cores_per_player`, `players` = slots when nothing else says, optional `note`); put the slot
+field into the server block as `"max_players": "{max_players}"` so the server records it.
 
 **Settings files before a start** - `["settings", {"file", "format", "seed", "enforce", "create" | "copy"}]` in
 `pre_start` edits a game's settings file in place (comments, order and encoding stay as they are):
@@ -248,6 +271,7 @@ then press **Restart ServerDeck** in the page.
 | `chat.py` | game chat: admin alerts and a chat log, each to its own Discord webhook |
 | `players.py` | who is on, first seen / time played, kicks, bans, admin and moderator roles |
 | `trends.py` | player counts over time for the graphs |
+| `burden.py` | server burden: the memory and CPU the servers that are on need, against what the PC has |
 | `setupwiz.py`, `templates/` | adding and removing servers |
 | `hooks.py` | per-game maintenance (mods after updates, SCUM notifications, Palworld/Enshrouded settings files, the generic `settings` step) |
 | `cfgedit.py` | in-place editors for settings files (ini, Source cfg, xml, json, yaml) |

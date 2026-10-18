@@ -2,6 +2,7 @@
   "template": "fs22",
   "title": "Farming Simulator 22",
   "category": "Sandbox / sim",
+  "burden": {"ram_gb": 3.5, "ram_gb_per_player": 0.06, "cpu_cores": 0.8, "cpu_cores_per_player": 0.05, "players": 16, "note": "mods add memory"},
   "description": "Farming Simulator 22's dedicated server comes with the game - there is no free server download - and Giants requires a separate game licence for it: you can't host and play on the same one. Install the game on this PC (Steam - then the Steam client must stay running - or the Giants version), and point the install folder at it. ServerDeck runs and keeps up its dedicatedServer.exe, the web page you manage the game server from (http://127.0.0.1:<web port>): start the farm there and turn on its autostart. On the first start ServerDeck sets the web page's admin login in dedicatedServer.xml; it opens the web port and the game port in the firewall, and backs up the savegames (Documents\\My Games\\FarmingSimulator2022). Updates come from Steam / Giants, not SteamCMD. Players, warnings and kicks: on the web page. About 4-8 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "fs22", "help": "letters, numbers, - and _"},
