@@ -13,6 +13,35 @@ import winproc
 steamcmd_lock = threading.Lock()
 
 
+def client_state(install_dir, appid):
+    """A game the Steam client installs (Farming Simulator): what its appmanifest in the library around install_dir
+    (...\\steamapps\\common\\<game>) says - {"installed", "state", "percent", "done", "total"} - or None when there
+    is no such manifest (not a Steam library, or Steam hasn't started on it)."""
+    p = Path(install_dir)
+    if p.parent.name.lower() != "common" or p.parent.parent.name.lower() != "steamapps":
+        return None
+    try:
+        text = (p.parent.parent / f"appmanifest_{int(appid)}.acf").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    num = lambda key: int((re.search(r'"%s"\s+"(\d+)"' % key, text) or [0, "0"])[1])   # noqa: E731
+    flags = num("StateFlags")
+    to_dl, dl, to_stage, staged = num("BytesToDownload"), num("BytesDownloaded"), num("BytesToStage"), num("BytesStaged")
+    # EAppState: 4 fully installed; busy = update running / paused / started, reconfiguring, validating,
+    # adding files, preallocating, downloading, staging, committing
+    busy = 256 | 512 | 1024 | 65536 | 131072 | 262144 | 524288 | 1048576 | 2097152 | 4194304
+    if flags & 4 and not flags & busy:
+        return {"installed": True, "state": "installed", "percent": 100.0, "done": None, "total": None}
+    if to_dl and dl < to_dl:
+        state, done, total = "downloading", dl, to_dl
+    elif to_stage and staged < to_stage:
+        state, done, total = "installing", staged, to_stage
+    else:
+        state, done, total = ("queued" if not to_dl else "finishing"), None, None
+    return {"installed": bool(flags & 4), "state": state, "done": done, "total": total,
+            "percent": round(done / total * 100, 1) if total else None}
+
+
 def installed_build(manifest_path):
     try:
         text = Path(manifest_path).read_text(encoding="utf-8", errors="replace")

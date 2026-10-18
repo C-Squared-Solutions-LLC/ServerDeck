@@ -36,6 +36,16 @@
   #askText { white-space: pre-line; font-size: 14px; color: var(--text); }
   #askDlg button.primary.danger { background: var(--bad); border-color: var(--bad); }
   .job progress { display: block; width: 100%; height: 8px; margin-top: 6px; accent-color: var(--accent); }
+  .head .grip { cursor: grab; color: var(--muted); letter-spacing: -3px; padding: 0 4px 0 0; user-select: none; font-size: 15px; }
+  .head .fold { border: 0; background: transparent; padding: 0 4px; font-size: 14px; color: var(--muted); line-height: 1; }
+  .card.folded { gap: 6px; padding-block: 10px; }
+  .card.dragging { opacity: .45; }
+  .card.drop-before { box-shadow: -4px 0 0 0 var(--accent), var(--shadow); }
+  .card.drop-after { box-shadow: 4px 0 0 0 var(--accent), var(--shadow); }
+  a.btn { display: inline-block; font-size: 13px; padding: 3px 10px; border-radius: 7px; border: 1px solid var(--line);
+          text-decoration: none; color: var(--text); background: var(--panel); }
+  a.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .job .muted { margin-top: 4px; }
   .banner ul { margin: 6px 0 4px 20px; padding: 0; }
   .sys .over, .sys .over b { color: var(--bad); }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); gap: 16px; }
@@ -521,6 +531,59 @@ const fmtDay = (t) => new Date(t * 1000).toLocaleString([], { weekday: "short", 
 const fmtGB = (g) => g == null ? "-" : `${g >= 9.95 ? Math.round(g) : (+g).toFixed(1)} GB`;
 const fmtCores = (c) => { if (c == null) return "-"; const r = Math.round(c * 10) / 10; return `${Number.isInteger(r) ? r : r.toFixed(1)} core${r === 1 ? "" : "s"}`; };
 
+// ---- card layout: order and collapsed cards, kept by ServerDeck (/api/ui) so every browser shows the same ----
+let uiPending = null;                        // what was just changed here, until the next status has it
+const uiPrefs = () => uiPending || (data && data.ui_prefs) || {};
+const cardFolded = (id) => (uiPrefs().collapsed || []).includes(id);
+function orderedServers() {
+  const order = uiPrefs().order || [], pos = (s) => { const i = order.indexOf(s.id); return i < 0 ? order.length + data.servers.indexOf(s) : i; };
+  return data.servers.slice().sort((a, b) => pos(a) - pos(b));
+}
+async function saveUi(change) {
+  uiPending = { ...uiPrefs(), ...change };
+  render();
+  try { data.ui_prefs = (await api("/api/ui", change)).ui_prefs; } catch (e) { tell(`Layout not saved: ${e.message}`); }
+  uiPending = null;
+}
+function toggleFold(id) {
+  const c = new Set(uiPrefs().collapsed || []);
+  c.has(id) ? c.delete(id) : c.add(id);
+  saveUi({ collapsed: [...c] });
+}
+let dragId = null;
+$("#grid").addEventListener("dragstart", (ev) => {
+  const grip = ev.target.closest && ev.target.closest(".grip"); if (!grip) return;
+  const card = grip.closest(".card");
+  dragId = card.dataset.id;
+  ev.dataTransfer.effectAllowed = "move";
+  ev.dataTransfer.setData("text/plain", dragId);
+  ev.dataTransfer.setDragImage(card, 24, 20);
+  card.classList.add("dragging");
+});
+$("#grid").addEventListener("dragover", (ev) => {
+  const card = dragId && ev.target.closest(".card"); if (!card) return;
+  ev.preventDefault();
+  for (const c of $("#grid").querySelectorAll(".drop-before, .drop-after")) c.classList.remove("drop-before", "drop-after");
+  if (card.dataset.id === dragId) return;
+  const r = card.getBoundingClientRect(), after = (ev.clientY - r.top) / r.height > 0.5 || (ev.clientX - r.left) / r.width > 0.75;
+  card.classList.add(after ? "drop-after" : "drop-before");
+});
+function endDrag() {
+  for (const c of $("#grid").querySelectorAll(".dragging, .drop-before, .drop-after")) c.classList.remove("dragging", "drop-before", "drop-after");
+  dragId = null;
+}
+$("#grid").addEventListener("drop", (ev) => {
+  const card = dragId && ev.target.closest(".card"); if (!card) return endDrag();
+  ev.preventDefault();
+  const after = card.classList.contains("drop-after"), target = card.dataset.id, moving = dragId;
+  endDrag();
+  if (target === moving) return;
+  const ids = orderedServers().map((s) => s.id).filter((id) => id !== moving);
+  ids.splice(ids.indexOf(target) + (after ? 1 : 0), 0, moving);
+  saveUi({ order: ids });
+});
+$("#grid").addEventListener("dragend", endDrag);
+
 // ---- server burden (burden.py): what the servers that are on need when full vs what this PC has for them ----
 const burdenOf = () => data && data.burden && data.burden.ready ? data.burden : null;
 const burdenWhat = (b) => `${fmtGB(b.ram)} · ${fmtCores(b.cores)}`;
@@ -711,6 +774,7 @@ function card(s) {
   const cd = s.job && s.job.countdown_until;
   const sick = s.health && s.health.ok === false;
   const notInstalled = s.installed === false;
+  const ci = s.client_install;               // a game the Steam client installs: its download / install progress
   const bu = ((data && data.burden && data.burden.servers) || {})[s.id];
   const burden = bu ? `<div class="row" title="${esc(burdenTip(bu))}"><span>${bu.on ? "Burden" : "Burden when on"} <b>${burdenWhat(bu)}</b></span>
       ${bu.slots ? `<span class="muted">${bu.slots} player slots</span>` : ""}${burdenMeasured(bu) ? ` <span class="chip warn">uses more than estimated</span>` : ""}${bu.known ? "" : ` <span class="chip">no estimate</span>`}</div>` : "";
@@ -718,9 +782,18 @@ function card(s) {
   const who = on.length ? `<div class="row"><span>Online:</span> ${on.slice(0, 12).map((n) =>
       `<span class="chip link" data-act="players" title="Players: who's on, kick, ban, roles">${esc(n)}</span>`).join(" ")}${on.length > 12
       ? ` <span class="chip link" data-act="players">+${on.length - 12} more</span>` : ""}</div>` : "";
+  const folded = cardFolded(s.id);
+  const head = `<div class="head"><span class="grip" draggable="true" title="Drag to move this card">&#8942;&#8942;</span>
+      <button class="fold" data-act="fold" title="${folded ? "Expand" : "Collapse"}" aria-expanded="${!folded}">${folded ? "&#9656;" : "&#9662;"}</button>
+      <h2>${esc(s.name)}</h2><span class="badge">${esc(s.kind)}</span>
+      <span class="state"><span class="dot"></span>${esc(label)}</span></div>`;
+  if (folded) return `<article class="card folded s-${cls}${sick ? " sick" : ""}" data-id="${s.id}">${head}
+    <div class="row">${s.players != null ? `<span>Players <b>${players}</b></span>` : ""}
+      ${s.running ? `<span>CPU <b>${s.cpu != null ? s.cpu.toFixed(1) + "%" : "-"}</b></span><span>RAM <b>${fmtBytes(s.mem_ws)}</b></span><span>up <b>${fmtDur(s.uptime)}</b></span>` : ""}
+      ${busy ? `<span class="upd">${esc(s.job.name)}: ${esc(s.job.step || "working")}</span>` : ""}
+      ${sick ? `<span class="chip down">struggling</span>` : ""}${s.update_available ? `<span class="upd">update available</span>` : ""}</div></article>`;
   return `<article class="card s-${cls}${sick ? " sick" : ""}" data-id="${s.id}">
-    <div class="head"><h2>${esc(s.name)}</h2><span class="badge">${esc(s.kind)}</span>
-      <span class="state"><span class="dot"></span>${esc(label)}</span></div>
+    ${head}
     ${sick ? `<div class="sickrow">&#9888; Struggling${s.health.since ? ` for ${fmtDur(nowS - s.health.since)}` : ""}: ${esc(s.health.reasons.join("; "))}</div>` : ""}
     ${s.server_name ? `<div class="row"><b>${esc(s.server_name)}</b>${s.map ? ` · ${esc(s.map)}` : ""}</div>` : ""}
     <div class="stats">
@@ -740,11 +813,22 @@ function card(s) {
     ${schedule}
     ${evs ? `<div class="row">${evs}</div>` : ""}
     ${s.note ? `<div class="note">${esc(s.note)}</div>` : ""}
-    ${notInstalled && !busy ? (s.steam_app === false
+    ${ci && ci.state !== "installed" ? `<div class="job"><b>Steam is ${esc(ci.state)} it</b>${ci.percent != null
+        ? ` - ${(+ci.percent).toFixed(0)}% (${fmtBytes(ci.done)} of ${fmtBytes(ci.total)})` : ""} - on your desktop, in the Steam client.
+        ${s.keep_online ? "ServerDeck starts it when Steam is done." : ""}
+        ${ci.percent != null ? `<progress max="100" value="${+ci.percent}"></progress>` : ""}</div>`
+    : notInstalled && !busy ? (s.steam_client
+      ? `<div class="job"><b>Not installed.</b> Its server comes with the game, so your Steam client downloads it: press
+          <a class="btn primary" href="steam://install/${+s.steam_client}">Install with Steam</a> and confirm in Steam (the game has to be
+          on the Steam account signed in on this PC; keep the library that puts it in <span class="mono">${esc(s.install_dir || "")}</span>).
+          ServerDeck shows the progress here${s.keep_online ? " and starts it when Steam is done" : ""}.
+          <div class="muted">It runs on your desktop next to Steam, so Windows has to be logged on. Hosting counts as playing it on that Steam account: to play on it yourself, use a second account.</div></div>`
+      : s.steam_app === false
       ? `<div class="job"><b>Not installed.</b> ServerDeck can't download this one - its server comes with the game. Install the game
           (Steam or its own installer) so that <span class="mono">${esc(s.install_dir || "")}</span> has it, then press Start.
           ${s.keep_online ? "ServerDeck doesn't try to start it before then." : ""}</div>`
       : `<div class="job"><b>Not installed yet</b> - press <b>Install</b> to download it with SteamCMD.${s.keep_online ? " It starts when that's done." : ""}</div>`) : ""}
+    ${s.waiting && !notInstalled && !s.running && !busy && !(ci && ci.state !== "installed") ? `<div class="job">${esc(s.waiting[0].toUpperCase() + s.waiting.slice(1))}${s.keep_online ? " - it starts by itself then" : ""}.</div>` : ""}
     ${s.held && !notInstalled ? `<div class="note">Auto-restart paused after repeated crashes. Press Start to try again.</div>` : ""}
     ${busy ? `<div class="job"><b>${esc(s.job.name)}</b> — ${cd ? `restarting in <b>${fmtDur(cd - nowS)}</b> · players are being warned
         <button data-act="cancel" style="margin-left:8px">Cancel restart</button>` : esc(s.job.step || "working")}
@@ -783,7 +867,7 @@ function render() {
     ? `<div class="banner">ServerDeck is not running elevated, so it can show status but cannot control servers. Start it from the "ServerDeck" scheduled task (install.ps1 creates it).</div>`
     : data.first_run ? `<div class="banner">No servers yet. <button class="primary" data-first="add">Add a server</button> - pick a game, choose where it goes, then press Install on its card.</div>` : ""));
   $("#lastcheck").textContent = "last update check: " + fmtAgo(data.last_check);
-  patch($("#grid"), data.servers.map(card).join(""));
+  patch($("#grid"), orderedServers().map(card).join(""));
   const sickServers = data.servers.filter((s) => s.health && s.health.ok === false);
   const pc = data.system_health && data.system_health.ok === false ? data.system_health : null;
   document.body.classList.toggle("alarm", sickServers.length > 0 || !!pc);
@@ -890,6 +974,7 @@ $("#grid").addEventListener("click", async (ev) => {
   const btn = ev.target.closest("[data-act]"); if (!btn) return;
   const id = btn.closest(".card").dataset.id, act = btn.dataset.act;
   const srv = data.servers.find((s) => s.id === id);
+  if (act === "fold") return toggleFold(id);
   if (act === "trend") {                     // one range for every card, so they line up
     trend.range = btn.dataset.range;
     try { localStorage.setItem("sdTrendRange", trend.range); } catch (e) { /* not remembered */ }

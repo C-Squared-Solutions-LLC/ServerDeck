@@ -439,10 +439,41 @@ class Server:
         return steam.installed_build(self.cfg["manifest"]) if self.cfg.get("manifest") else None
 
     def is_installed(self):
-        """Its SteamCMD manifest, else its exe, is there (a service: assumed)."""
+        """Its SteamCMD manifest, else its exe, is there (a service: assumed). A game the Steam client installs
+        ("steam_client": its app id) counts once Steam says it's complete."""
         if self.cfg.get("manifest"):
             return Path(self.cfg["manifest"]).exists()
+        client = self.client_install()
+        if client is not None and not client["installed"]:
+            return False
         return self.exe().exists() if self.cfg.get("exe") else True
+
+    def client_install(self):
+        """Steam client's view of a "steam_client" game (steam.client_state), None for everything else."""
+        appid = self.cfg.get("steam_client")
+        return steam.client_state(self.cfg.get("install_dir", ""), appid) if appid else None
+
+    def on_desktop(self):
+        """Runs on the logged-on user's desktop: "session": "desktop", or a Steam-client game (it needs Steam,
+        which lives there) - not a copy installed some other way (Giants)."""
+        return self.cfg.get("session") == "desktop" or self.client_install() is not None
+
+    def waiting(self):
+        """Why it can't be started right now although it's installed, or None."""
+        if not self.on_desktop():
+            return None
+        if not winproc.desktop_session():
+            return "waiting for you to log on to Windows - it runs on your desktop" + (", next to Steam" if self.cfg.get("steam_client") else "")
+        client = self.client_install()
+        if client and client["state"] != "installed":
+            return f"Steam is {client['state']} it"
+        if self.cfg.get("steam_client"):
+            sc = winproc.steam_client()
+            if sc["running"] and not sc["signed_in"]:
+                return "waiting for Steam to be signed in"
+            if not sc["exe"]:
+                return "Steam isn't installed for this Windows user"
+        return None
 
     def latest_build(self):
         return self.mgr.state.get(self.id, "latest_build")
@@ -880,6 +911,8 @@ class Server:
             health=self.health, events=self.mgr.community.server_events(self),
             installed=self.is_installed(), install_dir=self.cfg.get("install_dir"),
             steam_app=bool(self.cfg.get("appid")),
+            steam_client=self.cfg.get("steam_client"), client_install=self.client_install(),
+            desktop=self.on_desktop(), waiting=self.waiting(),
         )
         return st
 
@@ -936,8 +969,18 @@ class WinProcessServer(Server):
             cmd = subprocess.list2cmdline([str(exe)]) + " " + " ".join(args)
         env = {k: self.mgr.secret(str(v)) for k, v in (self.cfg.get("env") or {}).items()}   # Valheim: SteamAppId
         cwd = Path(self.cfg["install_dir"]) / self.cfg["cwd"] if self.cfg.get("cwd") else exe.parent
-        pid, detached = winproc.launch_console_hidden(cmd, cwd=str(cwd), env=env or None)
-        self.note(f"launched {exe.name} (pid {pid}{', outside the task job' if detached else ''})")
+        if self.on_desktop():
+            # Farming Simulator's Steam version: on the user's desktop, next to the Steam client it needs.
+            why = self.waiting()
+            if why:
+                raise RuntimeError(why)
+            if self.cfg.get("steam_client"):
+                self._ensure_steam()
+            pid, _ = winproc.launch_in_desktop(cmd, cwd=str(cwd), env=env or None)
+            self.note(f"launched {exe.name} on your desktop (pid {pid})")
+        else:
+            pid, detached = winproc.launch_console_hidden(cmd, cwd=str(cwd), env=env or None)
+            self.note(f"launched {exe.name} (pid {pid}{', outside the task job' if detached else ''})")
         launched = time.time()
         deadline = launched + self.cfg.get("start_timeout", 600)
         while time.time() < deadline:
@@ -951,6 +994,23 @@ class WinProcessServer(Server):
             if self.status["online"]:
                 return
         self.mgr.events.add("warn", self.id, "still not answering after the start timeout")
+
+    def _ensure_steam(self):
+        """A Steam-client game needs Steam running and signed in on the desktop: start it (to the tray) if it
+        isn't running, and give it two minutes to sign in."""
+        sc = winproc.steam_client()
+        if sc["signed_in"]:
+            return
+        if not sc["running"]:
+            self.step("starting Steam on your desktop")
+            winproc.launch_in_desktop([sc["exe"], "-silent"], cwd=str(Path(sc["exe"]).parent), hidden=False)
+        deadline = time.time() + 120
+        while time.time() < deadline:
+            time.sleep(5)
+            if winproc.steam_client()["signed_in"]:
+                time.sleep(10)                  # let it finish signing in before the game asks it anything
+                return
+        raise RuntimeError("Steam didn't sign in within 2 minutes - start Steam and sign in, then press Start")
 
     def _stop(self):
         pid = self.find_pid()
@@ -984,7 +1044,10 @@ class WinProcessServer(Server):
             self.mgr.events.add("warn", self.id, "no clean exit - terminating")
         # SCUMServer.exe has no console and no windows: terminating is the only
         # way (and what the old 6-hourly kill did); it writes its DB continuously.
-        winproc.terminate(pid)
+        if self.on_desktop():
+            winproc.kill_tree(pid)                # Farming Simulator: the game it started for the farm too
+        else:
+            winproc.terminate(pid)
         winproc.wait_exit(pid, 30)
         if method == "terminate":
             self.note("process terminated")
@@ -1245,8 +1308,8 @@ class Manager:
     def _keep_alive(self, s):
         if not s.keep_online() or s.busy() or s.is_running() or s.status.get("state") == "unknown":
             return
-        if not self.can_control(s) or not s.is_installed():
-            return          # nothing to start yet: Install (or the game's own installer) comes first
+        if not self.can_control(s) or not s.is_installed() or s.waiting():
+            return          # nothing to start yet (Install comes first), or no desktop / Steam to start it on
         now = time.time()
         if s.held_until > now:
             return
@@ -1445,6 +1508,7 @@ class Manager:
             "system": self.sys,
             "system_health": self.sys_health,
             "burden": self.burden.summary(),
+            "ui_prefs": self.state.top("ui") or {},
             "last_check": self.last_check,
             "servers": [s.summary() for s in self.servers],
             "events": self.events.recent(),
@@ -1546,6 +1610,8 @@ class Manager:
         else:
             args = (True,) if action == "update" else ()
         if action == "update" and not s.cfg.get("appid"):
+            if s.cfg.get("steam_client"):
+                return 400, {"error": f"Steam installs and updates {s.name}: press Install with Steam on its card"}
             return 400, {"error": f"ServerDeck can't download {s.name} - it comes with the game: install or update "
                                   f"the game (Steam or its own installer) into {s.cfg.get('install_dir')}"}
         name = "install" if action == "update" and not s.is_installed() else action
@@ -1658,6 +1724,17 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/api/check-updates":
             threading.Thread(target=self.mgr.check_updates, daemon=True).start()
             return self._send(202, {"ok": True})
+        if url.path == "/api/ui":
+            # Card layout on the page: their order and which are collapsed (server ids).
+            ids = set(self.mgr.by_id)
+            prefs = dict(self.mgr.state.top("ui") or {})
+            for key in ("order", "collapsed"):
+                if key in body:
+                    if not isinstance(body[key], list):
+                        return self._send(400, {"error": f"{key} must be a list of server ids"})
+                    prefs[key] = [str(x) for x in body[key] if str(x) in ids]
+            self.mgr.state.set_top("ui", prefs)
+            return self._send(200, {"ok": True, "ui_prefs": prefs})
         if url.path == "/api/deck/restart":
             busy = self.mgr.restart_self(force=bool(body.get("force")))
             if busy:

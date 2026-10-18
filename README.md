@@ -72,8 +72,11 @@ install it).
    - **Add a server**: pick a game, choose an install folder, adjust ports - ServerDeck opens its
      firewall ports (not the RCON port);
    - press **Install** on the new server's card - SteamCMD downloads it, and the card shows how far it is
-     (percent and GB). Servers SteamCMD can't download (Farming Simulator's comes with the game) say so on
-     their card: install the game, then press Start;
+     (percent and GB). Farming Simulator's server comes with the game: on its card, **Install with Steam**
+     has your Steam client download it (it must be on the Steam account signed in on this PC), the card shows
+     Steam's progress, and ServerDeck then runs it on your desktop next to Steam (Windows has to be logged on;
+     ServerDeck registers a "ServerDeck desktop helper" scheduled task for that). Hosting counts as playing it
+     on that account. A Giants copy: install it yourself and point the server's folder at it;
    - press **Configs** on the card for its config files.
 
 Space Engineers is different: install it, then run `DedicatedServer64\SpaceEngineersDedicated.exe` once to
@@ -90,7 +93,8 @@ admin rights, but not control servers).
 ## Using ServerDeck
 
 Open `http://127.0.0.1:8787` (the desktop shortcut). Each server has a card; the buttons along the top
-work across servers.
+work across servers. Drag a card by its ⋮⋮ handle to move it, and use ▾ to collapse it to one line - the
+layout is kept by ServerDeck, so every browser shows the same.
 
 **On a server's card**
 - **Start / Stop** - Start also means "keep it online" (it is brought back if it crashes); Stop keeps it

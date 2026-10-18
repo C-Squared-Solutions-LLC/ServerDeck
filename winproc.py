@@ -4,12 +4,15 @@ Kept dependency-free on purpose (no psutil): the manager runs from a scheduled
 task and should keep working after Python package upgrades.
 """
 import ctypes
+import json
 import ctypes.wintypes as wt
 import os
 import socket
 import subprocess
 import sys
+import threading
 import time
+from pathlib import Path
 
 k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 iphlp = ctypes.WinDLL("iphlpapi", use_last_error=True)
@@ -256,6 +259,12 @@ def send_ctrl_c(pid):
     exe = sys.executable
     if exe.lower().endswith("pythonw.exe"):
         exe = exe[:-len("pythonw.exe")] + "python.exe"
+    if session_of(pid) not in (None, session_of(os.getpid())):
+        # A console in another session (a game on the user's desktop) can only be reached from there.
+        try:
+            return bool(desktop_request({"action": "ctrl_c", "pid": pid}).get("ok"))
+        except OSError:
+            return False
     try:
         r = subprocess.run(
             [exe, "-c", _CTRL_C_HELPER, str(pid)],
@@ -351,6 +360,169 @@ def launch_console_hidden(cmd, cwd, env=None):
     except OSError:
         p = subprocess.Popen(cmd, creationflags=CREATE_NEW_CONSOLE, **kw)
         return p.pid, False
+
+
+# --------------------------------------------------------------------------
+# The logged-on user's desktop. ServerDeck runs in session 0 (a scheduled task that works with nobody logged
+# on); the Steam client runs on the user's desktop. A game that needs the Steam client (Farming Simulator's
+# Steam version) has to run there as well. Starting it with a copy of Explorer's token (CreateProcessWithTokenW)
+# doesn't work - it still lands in session 0 and dies with 0xC0000142 - so a scheduled task "only when the user
+# is logged on" does it: deskhelper.py.
+# --------------------------------------------------------------------------
+
+advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+PROCESS_QUERY_INFORMATION = 0x0400
+TOKEN_QUERY = 0x0008
+
+
+k32.ProcessIdToSessionId.argtypes = [wt.DWORD, ctypes.POINTER(wt.DWORD)]
+k32.ProcessIdToSessionId.restype = wt.BOOL
+k32.WTSGetActiveConsoleSessionId.argtypes = []
+k32.WTSGetActiveConsoleSessionId.restype = wt.DWORD
+k32.GetCurrentProcess.restype = wt.HANDLE
+advapi.OpenProcessToken.argtypes = [wt.HANDLE, wt.DWORD, ctypes.POINTER(wt.HANDLE)]
+advapi.OpenProcessToken.restype = wt.BOOL
+advapi.GetTokenInformation.argtypes = [wt.HANDLE, ctypes.c_int, ctypes.c_void_p, wt.DWORD, ctypes.POINTER(wt.DWORD)]
+advapi.GetTokenInformation.restype = wt.BOOL
+advapi.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wt.LPWSTR)]
+advapi.ConvertSidToStringSidW.restype = wt.BOOL
+ctypes.windll.kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+
+
+def session_of(pid):
+    """Windows session a process runs in (0 = services, ServerDeck's own), or None."""
+    s = wt.DWORD()
+    return s.value if pid and k32.ProcessIdToSessionId(pid, ctypes.byref(s)) else None
+
+
+def _token_user(token):
+    size = wt.DWORD()
+    advapi.GetTokenInformation(token, 1, None, 0, ctypes.byref(size))           # TokenUser
+    buf = ctypes.create_string_buffer(size.value)
+    if not advapi.GetTokenInformation(token, 1, buf, size, ctypes.byref(size)):
+        return None
+    sid = ctypes.c_void_p.from_buffer(buf).value                                 # TOKEN_USER.User.Sid
+    text = wt.LPWSTR()
+    if not advapi.ConvertSidToStringSidW(sid, ctypes.byref(text)):
+        return None
+    try:
+        return text.value
+    finally:
+        ctypes.windll.kernel32.LocalFree(text)
+
+
+def _process_token(pid, access):
+    h = _open(pid, PROCESS_QUERY_INFORMATION) if pid else None
+    if pid and not h:
+        return None
+    tok = wt.HANDLE()
+    ok = advapi.OpenProcessToken(h or k32.GetCurrentProcess(), access, ctypes.byref(tok))
+    if h:
+        k32.CloseHandle(h)
+    return tok if ok else None
+
+
+def desktop_session():
+    """(session, explorer pid) of this user's desktop - the one at the console if there are several - or None
+    when they aren't logged on to Windows."""
+    me = _process_token(None, TOKEN_QUERY)
+    user = _token_user(me) if me else None
+    if me:
+        k32.CloseHandle(me)
+    console, found = k32.WTSGetActiveConsoleSessionId(), []
+    for pid in find_pids("explorer.exe"):
+        s = session_of(pid)
+        tok = _process_token(pid, TOKEN_QUERY) if s else None
+        if tok:
+            if _token_user(tok) == user:
+                found.append((s != console, s, pid))
+            k32.CloseHandle(tok)
+    return min(found)[1:] if found else None
+
+
+def running_on_desktop(image):
+    """pids of `image` running on this user's desktop."""
+    d = desktop_session()
+    return [pid for pid in find_pids(image) if d and session_of(pid) == d[0]]
+
+
+DESKTOP_TASK = "ServerDeck desktop helper"
+_desktop_lock = threading.Lock()
+
+
+def _desktop_task():
+    """Register deskhelper.py as a scheduled task for this user that runs only while they're logged on - which
+    puts it on their desktop, not elevated (the only way Windows lets session 0 start something there)."""
+    here = Path(__file__).resolve().parent
+    py = Path(sys.executable)
+    pyw = py.with_name("pythonw.exe") if py.with_name("pythonw.exe").exists() else py
+    q = run_hidden(["schtasks", "/query", "/tn", DESKTOP_TASK, "/xml"], timeout=30)
+    if q.returncode == 0 and str(here / "deskhelper.py").lower() in q.stdout.decode("utf-16", "replace").lower():
+        return
+    user = f"{os.environ.get('USERDOMAIN', '')}\\{os.environ.get('USERNAME', '')}".strip("\\")
+    ps = (f"$a = New-ScheduledTaskAction -Execute '{pyw}' -Argument '\"{here / 'deskhelper.py'}\"' -WorkingDirectory '{here}';"
+          f"$p = New-ScheduledTaskPrincipal -UserId '{user}' -LogonType Interactive -RunLevel Limited;"
+          "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
+          "-ExecutionTimeLimit (New-TimeSpan -Minutes 5) -MultipleInstances Queue;"
+          f"Register-ScheduledTask -TaskName '{DESKTOP_TASK}' -Action $a -Principal $p -Settings $s -Force | Out-Null")
+    r = run_hidden(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=60)
+    if r.returncode != 0:
+        raise OSError("couldn't register the desktop helper task: " + r.stderr.decode("utf-8", "replace").strip()[-300:])
+
+
+def desktop_request(req, timeout=30):
+    """Hand deskhelper.py one request on the user's desktop and return its answer (dict). OSError when nobody is
+    logged on or it doesn't answer."""
+    if not desktop_session():
+        raise OSError("nobody is logged on to Windows")
+    here = Path(__file__).resolve().parent
+    with _desktop_lock:
+        _desktop_task()
+        req = dict(req, id=f"{os.getpid()}-{time.time()}")
+        result = here / "desktop_result.json"
+        result.unlink(missing_ok=True)
+        tmp = here / "desktop_request.json.tmp"
+        tmp.write_text(json.dumps(req), encoding="utf-8")
+        tmp.replace(here / "desktop_request.json")
+        r = run_hidden(["schtasks", "/run", "/tn", DESKTOP_TASK], timeout=30)
+        if r.returncode != 0:
+            raise OSError("couldn't run the desktop helper task: " + r.stdout.decode("utf-8", "replace").strip()[-200:])
+        deadline = time.time() + timeout + (req.get("wait") or 0)
+        while time.time() < deadline:
+            time.sleep(0.3)
+            try:
+                out = json.loads(result.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if out.get("id") == req["id"]:
+                return out
+        raise OSError("the desktop helper didn't answer - is Windows logged on?")
+
+
+def launch_in_desktop(cmd, cwd, env=None, hidden=True, wait=None):
+    """Start a program on this user's desktop in a new (hidden) console, through deskhelper.py. `wait`: seconds
+    to wait for it to exit. Returns (pid, exit code or None)."""
+    out = desktop_request({"action": "start", "cmd": cmd, "cwd": cwd, "env": env, "hidden": hidden, "wait": wait})
+    if not out.get("ok"):
+        raise OSError(out.get("error") or "the desktop helper couldn't start it")
+    return out["pid"], out.get("code")
+
+
+def steam_client():
+    """The Steam client on this user's desktop: {"running", "signed_in", "exe"} (registry + process list)."""
+    import winreg
+    out = {"running": False, "signed_in": False, "exe": None}
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as k:
+            out["exe"] = str(winreg.QueryValueEx(k, "SteamExe")[0]).replace("/", "\\")
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam\ActiveProcess") as k:
+            pid = int(winreg.QueryValueEx(k, "pid")[0] or 0)
+            user = int(winreg.QueryValueEx(k, "ActiveUser")[0] or 0)
+    except OSError:
+        return out
+    out["running"] = bool(running_on_desktop("steam.exe"))
+    out["signed_in"] = out["running"] and bool(user) and pid in running_on_desktop("steam.exe")
+    return out
 
 
 def spawn_detached(cmd):

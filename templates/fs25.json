@@ -3,7 +3,7 @@
   "title": "Farming Simulator 25",
   "category": "Sandbox / sim",
   "burden": {"ram_gb": 5, "ram_gb_per_player": 0.08, "cpu_cores": 1.2, "cpu_cores_per_player": 0.06, "players": 16, "note": "mods add memory"},
-  "description": "Farming Simulator 25's dedicated server comes with the game - there is no free server download - and Giants requires a separate game licence for it: you can't host and play on the same one. Install the game on this PC (Steam - then the Steam client must stay running - or the Giants version, which Giants recommends for servers), and point the install folder at it. ServerDeck runs and keeps up its dedicatedServer.exe, the web page you manage the game server from (http://127.0.0.1:<web port>): start the farm there and turn on its autostart. On the first start ServerDeck sets the web page's admin login in dedicatedServer.xml; it opens the web port and the game port in the firewall, and backs up the savegames (Documents\\My Games\\FarmingSimulator2025). Updates come from Steam / Giants, not SteamCMD. Players, warnings and kicks: on the web page. Giants: 8 GB of RAM, 16 recommended.",
+  "description": "Farming Simulator 25's dedicated server comes with the game - there is no free server download - and hosting counts as playing it, so to play on your own server you need a second licence / Steam account. Steam version: press Install with Steam on its card - your Steam client downloads the game (it has to be on the account signed in on this PC), ServerDeck shows the progress, then runs dedicatedServer.exe on your desktop next to Steam (Windows logged on; Steam is started if it isn't running). Giants version (the one Giants recommends for servers): install it yourself and set the folder below. dedicatedServer.exe is the web page you run the farm from (http://127.0.0.1:<web port>): start the farm there and turn on its autostart. On the first start ServerDeck sets the page's admin login in dedicatedServer.xml; it opens the web and game ports and backs up the savegames (Documents\\My Games\\FarmingSimulator2025). Updates come from Steam / Giants. Giants: 8 GB of RAM, 16 recommended.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "fs25", "help": "letters, numbers, - and _"},
     {"key": "name", "label": "Display name", "default": "Farming Simulator 25"},
@@ -18,6 +18,7 @@
     "name": "{name}",
     "type": "win_process",
     "install_dir": "{install_dir}",
+    "steam_client": 2300320,
     "exe": "dedicatedServer.exe",
     "args": [],
     "ports": [["tcp", "{web_port}"]],
