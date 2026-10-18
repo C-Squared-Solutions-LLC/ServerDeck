@@ -828,6 +828,7 @@ function card(s) {
           (Steam or its own installer) so that <span class="mono">${esc(s.install_dir || "")}</span> has it, then press Start.
           ${s.keep_online ? "ServerDeck doesn't try to start it before then." : ""}</div>`
       : `<div class="job"><b>Not installed yet</b> - press <b>Install</b> to download it with SteamCMD.${s.keep_online ? " It starts when that's done." : ""}</div>`) : ""}
+    ${s.steam_client && !notInstalled ? `<div class="row muted">&#9888; Stop / Restart here don't save the farm - it saves on its autosave timer (set it on the game's web page) or when an admin saves in game. Save first.</div>` : ""}
     ${s.waiting && !notInstalled && !s.running && !busy && !(ci && ci.state !== "installed") ? `<div class="job">${esc(s.waiting[0].toUpperCase() + s.waiting.slice(1))}${s.keep_online ? " - it starts by itself then" : ""}.</div>` : ""}
     ${s.held && !notInstalled ? `<div class="note">Auto-restart paused after repeated crashes. Press Start to try again.</div>` : ""}
     ${busy ? `<div class="job"><b>${esc(s.job.name)}</b> — ${cd ? `restarting in <b>${fmtDur(cd - nowS)}</b> · players are being warned
