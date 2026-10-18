@@ -3,7 +3,7 @@
   "title": "ATLAS",
   "category": "Survival / crafting",
   "burden": {"ram_gb": 7, "ram_gb_per_player": 0.1, "cpu_cores": 1.5, "cpu_cores_per_player": 0.05, "players": 20, "note": "for one grid cell; every extra cell is another server about this size"},
-  "description": "ATLAS dedicated server (Steam app 1006030), run as a single grid (cell 0,0). ATLAS needs its Redis database: ServerDeck starts the copy that comes with the server (AtlasTools\\RedisDatabase) before ATLAS and leaves it running. Before the first start make ShooterGame\\ServerGrid.json describe your grid with ATLAS's ServerGridEditor: a 1x1 grid whose cell 0,0 has this PC's public address and the ports below, and the Redis password from AtlasTools\\RedisDatabase\\redis.conf. ServerDeck uses RCON (password = the admin password) for who is on (kick, ban - Steam IDs), restart warnings and clean stops (SaveWorld, DoExit). Official ATLAS servers are gone and the game gets no more updates. About 6-10 GB of RAM.",
+  "description": "ATLAS dedicated server (Steam app 1006030), run as a single grid cell - no ServerGridEditor needed: the server files come without a ServerGrid.json, so the first start makes one from Grapeshot's own sample (its home cell 0,0, Tropical Freeport) with this PC's public address (looked up if you leave it empty), the ports below and the Redis password. ATLAS needs its Redis database: ServerDeck starts the copy that comes with the server (AtlasTools\\RedisDatabase) before ATLAS and leaves it running. ServerDeck uses RCON (password = the admin password) for who is on (kick, ban - Steam IDs), restart warnings and clean stops (SaveWorld, DoExit). Forward the game, query and seamless ports in your router. Official ATLAS servers are gone and the game gets no more updates (last in 2023). A 32 GB download; about 6-10 GB of RAM.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "atlas", "help": "letters, numbers, - and _"},
     {"key": "name", "label": "Display name", "default": "ATLAS"},
@@ -13,7 +13,7 @@
     {"key": "query_port", "label": "Query port (UDP)", "type": "int", "default": 57555},
     {"key": "seamless_port", "label": "Seamless data port (TCP)", "type": "int", "default": 27000},
     {"key": "rcon_port", "label": "RCON port (TCP, this PC only)", "type": "int", "default": 32330},
-    {"key": "public_ip", "label": "Public IP address", "default": "", "help": "the same as in ServerGrid.json - optional for a single grid"},
+    {"key": "public_ip", "label": "Public IP address", "default": "", "help": "left empty, ServerDeck looks it up"},
     {"key": "admin_password", "label": "Admin / RCON password", "default": "", "secret": true, "generate": true, "help": "left empty, a random one is made"}
   ],
   "server": {
@@ -40,10 +40,11 @@
     "announce": "rcon_say",
     "health": {"startup_grace": 1800},
     "schedule": {"enabled": false, "every_hours": 12, "start": "06:00", "warn_minutes": 10},
-    "pre_start": [["helper", "AtlasTools\\RedisDatabase\\redis-server.exe", ["redis.conf"]]],
-    "backup": {"paths": ["ShooterGame\\Saved", "ShooterGame\\ServerGrid.json", "AtlasTools\\RedisDatabase"],
+    "pre_start": [["atlas_grid", {"name": "{name}", "public_ip": "{public_ip}", "port": "{port}", "query_port": "{query_port}", "seamless_port": "{seamless_port}"}],
+                  ["helper", "AtlasTools\\RedisDatabase\\redis-server.exe", ["redis.conf"]]],
+    "backup": {"paths": ["ShooterGame\\Saved", "ShooterGame\\ServerGrid.json", "ShooterGame\\ServerGrid.ServerOnly.json", "AtlasTools\\RedisDatabase"],
                "exclude": ["Logs", "Crashes"], "dest": "{backup_root}\\{id}"},
-    "config_files": ["ShooterGame/ServerGrid.json", "ShooterGame/Saved/Config/WindowsServer/*.ini", "AtlasTools/RedisDatabase/redis.conf"],
+    "config_files": ["ShooterGame/ServerGrid.json", "ShooterGame/ServerGrid.ServerOnly.json", "ShooterGame/Saved/Config/WindowsServer/*.ini", "AtlasTools/RedisDatabase/redis.conf"],
     "logs": {"server log": "{install_dir}\\ShooterGame\\Saved\\Logs\\*.log"},
     "defaults": {"keep_online": true, "auto_update": true}
   }

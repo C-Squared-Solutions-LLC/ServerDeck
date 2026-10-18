@@ -26,6 +26,7 @@ def client_state(install_dir, appid):
         return None
     num = lambda key: int((re.search(r'"%s"\s+"(\d+)"' % key, text) or [0, "0"])[1])   # noqa: E731
     flags = num("StateFlags")
+    estimated = False
     to_dl, dl, to_stage, staged = num("BytesToDownload"), num("BytesDownloaded"), num("BytesToStage"), num("BytesStaged")
     # EAppState: 4 fully installed; busy = update running / paused / started, reconfiguring, validating,
     # adding files, preallocating, downloading, staging, committing
@@ -34,12 +35,56 @@ def client_state(install_dir, appid):
         return {"installed": True, "state": "installed", "percent": 100.0, "done": None, "total": None}
     if to_dl and dl < to_dl:
         state, done, total = "downloading", dl, to_dl
+        est = _log_progress(p.parent.parent.parent, appid)   # the manifest's counters only move on pause / finish
+        if est and est[1] == to_dl and est[0] > dl:
+            done, estimated = est[0], True
     elif to_stage and staged < to_stage:
-        state, done, total = "installing", staged, to_stage
+        state, done, total = ("installing", staged, to_stage) if staged else ("installing", None, None)
     else:
         state, done, total = ("queued" if not to_dl else "finishing"), None, None
-    return {"installed": bool(flags & 4), "state": state, "done": done, "total": total,
+    return {"installed": bool(flags & 4), "state": state, "done": done, "total": total, "estimated": estimated,
             "percent": round(done / total * 100, 1) if total else None}
+
+
+_LOG_LINE = re.compile(r"^\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\] (.*)$")
+
+
+def _log_progress(steam_root, appid):
+    """(downloaded, total) bytes of a Steam client download, estimated from logs\\content_log.txt: its
+    "update started : download a/b" line, then the "Current download rate: N Mbps" it logs every minute added up
+    (Steam rewrites the appmanifest's counters only when it pauses or finishes). None if the log doesn't say."""
+    from datetime import datetime
+    path = Path(steam_root) / "logs" / "content_log.txt"
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 1_000_000))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    start = None
+    for i, ln in enumerate(lines):
+        if re.search(r"AppID %d update started : download (\d+)/(\d+)" % int(appid), ln):
+            start = i
+    if start is None:
+        return None
+    m = re.search(r"download (\d+)/(\d+)", lines[start])
+    done, total = int(m.group(1)), int(m.group(2))
+    ts = lambda ln: datetime.strptime(_LOG_LINE.match(ln).group(1), "%Y-%m-%d %H:%M:%S").timestamp()   # noqa: E731
+    last_t, rate = ts(lines[start]), None
+    for ln in lines[start + 1:]:
+        if not _LOG_LINE.match(ln):
+            continue
+        if re.search(r"AppID %d (update canceled|update paused|update finished|App update changed : None)" % int(appid), ln):
+            return None if "finished" not in ln else (total, total)
+        r = re.search(r"Current download rate: ([\d.]+) Mbps", ln)
+        if r:
+            t = ts(ln)
+            done += float(r.group(1)) * 125_000 * (t - last_t)      # the rate it logs is the minute's average
+            last_t, rate = t, float(r.group(1))
+    if rate:
+        done += rate * 125_000 * min(70, max(0, time.time() - last_t))
+    return int(min(done, total * 0.99)), total
 
 
 def installed_build(manifest_path):

@@ -79,8 +79,15 @@ install it).
      on that account. A Giants copy: install it yourself and point the server's folder at it;
    - press **Configs** on the card for its config files.
 
-Space Engineers is different: install it, then run `DedicatedServer64\SpaceEngineersDedicated.exe` once to
-create your world and its Windows service, and enable the Remote API in its settings.
+Space Engineers needs no configurator: its first start copies one of the scenarios that come with it (Star
+System, Earth Planet, Empty World, ...) into the instance folder as a new world and writes
+`SpaceEngineers-Dedicated.cfg` - name, ports, player cap and the Remote API (random key) ServerDeck uses. It runs
+in console mode as a plain process and stops with Ctrl+C, which saves the world. (A server set up earlier as the
+configurator's Windows service still works as one: type `win_service`.)
+
+ATLAS needs no ServerGridEditor: the server files come without a `ServerGrid.json`, so its first start makes a
+1x1 grid from Grapeshot's own sample (home cell 0,0) with this PC's public address, your ports and the Redis
+password, and starts the Redis database that comes with the server.
 
 Palworld and Enshrouded need nothing extra - ServerDeck writes their settings file before the first start:
 Palworld's `PalWorldSettings.ini` (name, port, player cap, and its REST API switched on for this PC only),

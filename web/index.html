@@ -814,7 +814,7 @@ function card(s) {
     ${evs ? `<div class="row">${evs}</div>` : ""}
     ${s.note ? `<div class="note">${esc(s.note)}</div>` : ""}
     ${ci && ci.state !== "installed" ? `<div class="job"><b>Steam is ${esc(ci.state)} it</b>${ci.percent != null
-        ? ` - ${(+ci.percent).toFixed(0)}% (${fmtBytes(ci.done)} of ${fmtBytes(ci.total)})` : ""} - on your desktop, in the Steam client.
+        ? ` - ${ci.estimated ? "about " : ""}${(+ci.percent).toFixed(0)}% (${fmtBytes(ci.done)} of ${fmtBytes(ci.total)})` : ""} - on your desktop, in the Steam client.
         ${s.keep_online ? "ServerDeck starts it when Steam is done." : ""}
         ${ci.percent != null ? `<progress max="100" value="${+ci.percent}"></progress>` : ""}</div>`
     : notInstalled && !busy ? (s.steam_client

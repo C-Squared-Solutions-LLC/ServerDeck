@@ -474,7 +474,138 @@ def helper(server, changed, force, rel, args=()):
     time.sleep(2)
 
 
+def _xml_set(text, tag, value):
+    """Set a top-level <tag>value</tag> (or <tag />) in an SE config; added before the closing root tag if missing."""
+    from xml.sax.saxutils import escape
+    new = f"<{tag}>{escape(str(value))}</{tag}>"
+    pat = re.compile(r"<%s\s*/>|<%s>.*?</%s>" % (tag, tag, tag), re.S)
+    if pat.search(text):
+        return pat.sub(lambda m: new, text, count=1)
+    return re.sub(r"(\s*)</MyConfigDedicated>", lambda m: f"\n  {new}{m.group(1)}</MyConfigDedicated>", text, count=1)
+
+
+def se_instance(server, changed, force, spec):
+    """Space Engineers without its GUI configurator. On the first start: copy a scenario that comes with the
+    server (Content\\CustomWorlds\\<world>, e.g. "Star System") into <dir>\\Saves - that is how the configurator
+    makes a new world too - and write SpaceEngineers-Dedicated.cfg: the scenario's settings made public with the
+    player cap, LoadWorld, name, ports and the Remote API (a random key) that ServerDeck uses. Before every start:
+    ports and the Remote API are put back. SE rewrites the file while it runs, so this only happens stopped.
+    spec: {"dir", "world", "server_name", "port", "steam_port", "remote_api_port", "max_players"}"""
+    install, inst = Path(server.cfg["install_dir"]), Path(spec["dir"])
+    cfg = inst / "SpaceEngineers-Dedicated.cfg"
+    inst.mkdir(parents=True, exist_ok=True)
+    if cfg.exists():
+        text, enc = cfgedit.read(cfg)
+    else:
+        scenario = install / "Content" / "CustomWorlds" / spec["world"]
+        if not (scenario / "Sandbox.sbc").exists():
+            have = sorted(p.name for p in (install / "Content" / "CustomWorlds").glob("*") if p.is_dir())
+            raise RuntimeError(f"no scenario '{spec['world']}' in Content\\CustomWorlds - there are: {', '.join(have) or 'none (installed?)'}")
+        world = inst / "Saves" / spec["world"]
+        if not world.exists():
+            shutil.copytree(scenario, world)
+        wc, wenc = cfgedit.read(world / "Sandbox_config.sbc")
+        settings_xml = re.search(r"<Settings[^>]*>(.*?)</Settings>", wc, re.S).group(1)
+        for tag, value in (("OnlineMode", "PUBLIC"), ("MaxPlayers", int(spec["max_players"]))):
+            settings_xml = re.sub(r"<%s>.*?</%s>" % (tag, tag), f"<{tag}>{value}</{tag}>", settings_xml, count=1)
+        wc = re.sub(r"(<Settings[^>]*>).*?(</Settings>)", lambda m: m.group(1) + settings_xml + m.group(2), wc, count=1, flags=re.S)
+        wc = re.sub(r"<SessionName>.*?</SessionName>", f"<SessionName>{spec['world']}</SessionName>", wc, count=1)
+        cfgedit.write(world / "Sandbox_config.sbc", wc, wenc)
+        text = ('<?xml version="1.0"?>\n<MyConfigDedicated xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
+                'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
+                f"  <SessionSettings>{settings_xml}</SessionSettings>\n  <LoadWorld />\n  <Administrators />\n  <Banned />\n"
+                "</MyConfigDedicated>\n")
+        enc = "utf-8"
+        for tag, value in (("LoadWorld", world / "Sandbox.sbc"), ("IP", "0.0.0.0"), ("ServerName", spec["server_name"]),
+                           ("WorldName", spec["world"]), ("PauseGameWhenEmpty", "false"), ("IgnoreLastSession", "false"),
+                           ("RemoteSecurityKey", __import__("base64").b64encode(secrets.token_bytes(16)).decode()),
+                           ("GroupID", 0), ("NetworkType", "steam"), ("ConsoleCompatibility", "false")):
+            text = _xml_set(text, tag, value)
+        server.note(f"Space Engineers: new world '{spec['world']}' in {world} (first start)")
+    new = text
+    for tag, value in (("ServerPort", int(spec["port"])), ("SteamPort", int(spec["steam_port"])),
+                       ("RemoteApiEnabled", "true"), ("RemoteApiPort", int(spec["remote_api_port"]))):
+        new = _xml_set(new, tag, value)
+    if new != text or not cfg.exists():
+        cfgedit.write(cfg, new, enc)
+
+
+ATLAS_SAMPLE = ("https://raw.githubusercontent.com/GrapeshotGames/ServerGridEditor/"
+                "019c4903ca848ab013d33c9838a2f7957d79da89/Projects/ServerGrid2x2.json")
+
+
+# every Redis connection name the last ATLAS server build looks up (found in ShooterGameServer.exe)
+ATLAS_DBS = ("Default", "TribeDB", "TravelDataDB", "TerritoryDB", "LogDB", "TradeDB", "MonumentDB", "FileManagerDB")
+
+
+def public_ip():
+    """This PC's address on the internet, as an outside service sees it (None if none answers)."""
+    for url in ("https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"):
+        try:
+            ip = http_get(url, timeout=10).decode().strip()
+            if re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", ip):
+                return ip
+        except Exception:
+            continue
+    return None
+
+
+def atlas_grid(server, changed, force, spec):
+    """ATLAS without its ServerGridEditor. The server files have no ShooterGame\\ServerGrid.json, so on the first
+    start one is made from Grapeshot's own 2x2 sample: its home cell 0,0 (Tropical Freeport, with its islands)
+    becomes a 1x1 grid with this PC's public address (spec "public_ip", else looked up), the ports from the
+    template, a new world id and the Redis password from AtlasTools\\RedisDatabase\\redis.conf. Before every start
+    the cell's address and ports and the Redis password are put back; everything else in it is yours to edit.
+    spec: {"name", "public_ip", "port", "query_port", "seamless_port"}"""
+    install = Path(server.cfg["install_dir"])
+    path = install / "ShooterGame" / "ServerGrid.json"
+    conf = install / "AtlasTools" / "RedisDatabase" / "redis.conf"
+    m = re.search(r"^\s*requirepass\s+(\S+)", conf.read_text(encoding="utf-8", errors="replace"), re.M) if conf.exists() else None
+    redis_pw = m.group(1) if m else ""
+    if path.exists():
+        grid, created = json.loads(path.read_text(encoding="utf-8-sig")), False
+    else:
+        sample = json.loads(http_get(ATLAS_SAMPLE, timeout=60).decode("utf-8-sig"))
+        cell = next(c for c in sample["servers"] if c["gridX"] == 0 and c["gridY"] == 0)
+        grid = dict(sample, totalGridsX=1, totalGridsY=1, servers=[cell], MetaWorldURL="", shipPaths=[],
+                    WorldFriendlyName=spec.get("name") or "ATLAS", WorldAtlasId=str(secrets.randbelow(9 * 10 ** 9) + 10 ** 9),
+                    WorldAtlasPassword="", AuthListURL="")
+        cell.update(MachineIdTag="", isHomeServer=True, name=spec.get("name") or cell.get("name"))
+        created = True
+    ip = str(spec.get("public_ip") or "").strip() or (grid["servers"][0].get("ip") if not created else "") or public_ip()
+    if not ip:
+        raise RuntimeError("couldn't find this PC's public IP address - enter it as the server's public_ip")
+    cell = grid["servers"][0]
+    want = {"ip": ip, "gamePort": int(spec["port"]), "port": int(spec["query_port"]), "seamlessDataPort": int(spec["seamless_port"])}
+    before = json.dumps(grid, sort_keys=True)
+    cell.update(want)
+    dbs = grid.setdefault("DatabaseConnections", [])
+    for name in ATLAS_DBS:                       # later ATLAS builds want more than the 2019 sample lists
+        if not any(d.get("Name") == name for d in dbs):
+            dbs.append({"Name": name})
+    for db in dbs:
+        db.update(URL="127.0.0.1", Port=6379, Password=redis_pw)
+    # The server reads Redis and S3 settings from ServerGrid.ServerOnly.json, which the editor exports next to it
+    # (the same fields, taken from the grid) - without it ATLAS quits right after starting.
+    only_path = path.with_name("ServerGrid.ServerOnly.json")
+    only = {k: grid.get(k, "" if k.startswith("LocalS3") else {}) for k in
+            ("LocalS3URL", "LocalS3AccessKeyId", "LocalS3SecretKey", "LocalS3BucketName", "LocalS3Region",
+             "TribeLogConfig", "SharedLogConfig", "TravelDataConfig", "DatabaseConnections")}
+    if not only_path.exists() or json.loads(only_path.read_text(encoding="utf-8-sig")).get("DatabaseConnections") != only["DatabaseConnections"]:
+        old = json.loads(only_path.read_text(encoding="utf-8-sig")) if only_path.exists() else {}
+        only_path.parent.mkdir(parents=True, exist_ok=True)
+        only_path.write_text(json.dumps({**only, **{k: v for k, v in old.items() if k != "DatabaseConnections"}},
+                                        indent=2), encoding="utf-8")
+    if created or json.dumps(grid, sort_keys=True) != before:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(grid, indent=2), encoding="utf-8")
+        server.note("ServerGrid.json: " + ("a 1x1 grid made from Grapeshot's sample (cell 0,0 Tropical Freeport)" if created
+                                            else "address / ports / Redis password put back") + f", address {ip}")
+
+
 HOOKS = {
+    "atlas_grid": atlas_grid,
+    "se_instance": se_instance,
     "remove": remove,
     "remove_without_avx2": remove_without_avx2,
     "rotate": rotate,
