@@ -1,0 +1,40 @@
+{
+  "template": "serious_sam_fusion",
+  "title": "Serious Sam Fusion 2017",
+  "category": "Shooters",
+  "description": "Serious Sam Fusion 2017 dedicated server (Steam app 564390, 64-bit) - one UDP port; it hosts the Serious Sam games Fusion includes. Pick the game mode below; everything else is a Serious Engine setting you can add to its arguments in config.json as +name value (e.g. +level \"<path>\"), or put in a Lua script it runs with +exec. It has no remote console ServerDeck speaks or Steam query it uses, so ServerDeck shows it online by its port, can't list or warn players, and stops it with Ctrl+C (Croteam's way). Up to 16 players. About 1-2 GB of RAM.",
+  "fields": [
+    {"key": "id", "label": "Short id", "default": "ssfusion", "help": "letters, numbers, - and _"},
+    {"key": "name", "label": "Display name", "default": "Serious Sam Fusion"},
+    {"key": "install_dir", "label": "Install folder", "default": "C:\\GameServers\\SeriousSamFusion"},
+    {"key": "server_name", "label": "Session name (in the browser)", "default": "My Serious Sam Server"},
+    {"key": "gamemode", "label": "Game mode", "default": "Cooperative", "help": "e.g. Cooperative, Deathmatch, TeamDeathmatch, CaptureTheFlag, LastManStanding, InstantKill, MyBurden, TeamSurvival, BeastHunt"},
+    {"key": "port", "label": "Port (UDP)", "type": "int", "default": 27195},
+    {"key": "max_players", "label": "Max players", "type": "int", "default": 8, "help": "up to 16"},
+    {"key": "rcon_password", "label": "Rcon password", "default": "", "secret": true, "generate": true, "help": "for Croteam's own rcon tool; left empty, a random one is made"}
+  ],
+  "server": {
+    "id": "{id}",
+    "name": "{name}",
+    "type": "win_process",
+    "appid": 564390,
+    "install_dir": "{install_dir}",
+    "steam_install_dir": "{install_dir}",
+    "manifest": "{install_dir}\\steamapps\\appmanifest_564390.acf",
+    "exe": "Bin\\x64\\Sam2017_DedicatedServer.exe",
+    "cwd": ".",
+    "args": ["+port", "{port}", "+sessionname", "{server_name}", "+gamemode", "{gamemode}", "+maxplayers", "{max_players}",
+             "+rconpass", "{rcon_password}", "+logfile", "{install_dir}\\Logs\\server.log"],
+    "ports": [["udp", "{port}"]],
+    "query": null,
+    "stop_method": "ctrl_c",
+    "stop_timeout": 60,
+    "start_timeout": 300,
+    "firewall": "auto",
+    "schedule": {"enabled": false, "every_hours": 12, "start": "06:00", "warn_minutes": 0},
+    "backup": {"paths": ["Content\\SeriousSam2017\\Config"], "dest": "{backup_root}\\{id}"},
+    "config_files": ["Content/SeriousSam2017/Config/*.lua", "Content/SeriousSam2017/Config/*.ini"],
+    "logs": {"server log": "{install_dir}\\Logs\\server.log"},
+    "defaults": {"keep_online": true, "auto_update": true}
+  }
+}

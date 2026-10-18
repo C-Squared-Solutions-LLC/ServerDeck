@@ -1,6 +1,7 @@
 {
   "template": "cs2",
   "title": "Counter-Strike 2",
+  "category": "Shooters",
   "description": "Counter-Strike 2 dedicated server (Steam app 730) with Metamod:Source and CounterStrikeSharp kept working across game updates. Kicks and bans go over RCON (bans are applied again after every start - CS2 forgets them), admins and moderators into CounterStrikeSharp's admins.json; bots don't count as players. Needs a Game Server Login Token from steamcommunity.com/dev/managegameservers (app 730) to show up in the public server list.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "cs2", "help": "letters, numbers, - and _"},

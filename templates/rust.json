@@ -1,6 +1,7 @@
 {
   "template": "rust",
   "title": "Rust",
+  "category": "Survival / crafting",
   "description": "Rust dedicated server (Steam app 258550) with Oxide (uMod) re-installed after every game update - your plugins, configs and data are never touched. Kicks, bans, owners and moderators go over RCON. The first start generates the map and can take 10-30 minutes.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "rust", "help": "letters, numbers, - and _"},

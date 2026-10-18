@@ -1,4 +1,5 @@
-"""RCON clients: Source RCON (CS2) and Rust's WebSocket RCON.
+"""RCON clients: Source RCON (CS2, other Source games, ARK, ...), Rust's WebSocket RCON and a plain
+telnet console (7 Days to Die, Empyrion).
 
 The WebSocket client is a minimal stdlib implementation (RFC 6455, text
 frames only) so ServerDeck needs no third-party packages.
@@ -6,6 +7,7 @@ frames only) so ServerDeck needs no third-party packages.
 import base64
 import json
 import os
+import re
 import socket
 import struct
 import time
@@ -52,6 +54,59 @@ def source(host, port, password, command, timeout=10):
                 break
         send(2, 2, command)                       # SERVERDATA_EXECCOMMAND
         return recv()[2]
+    finally:
+        sock.close()
+
+
+# --------------------------------------------------------------------------
+# Telnet console (7 Days to Die, Empyrion): line based, an optional password prompt
+# --------------------------------------------------------------------------
+
+def _strip_telnet(data):
+    """Drop telnet option negotiation (IAC ...) from what the server sent."""
+    data = re.sub(rb"\xff\xfa.*?\xff\xf0", b"", data, flags=re.S)      # sub-negotiation
+    data = re.sub(rb"\xff[\xfb-\xfe].", b"", data, flags=re.S)         # WILL / WONT / DO / DONT <option>
+    return data.replace(b"\xff\xff", b"\xff")
+
+
+def telnet(host, port, password, command, timeout=10, quiet=0.7):
+    """Log in if the console asks for a password, run one command and return what came back until the
+    console went quiet. (7 Days to Die also streams its log to every telnet client: callers pick out the
+    lines they need.)"""
+    sock = socket.create_connection((host, port), timeout=timeout)
+    deadline = time.monotonic() + timeout
+
+    def read(first_wait, gap):
+        """Wait up to first_wait for anything, then read until nothing arrives for `gap` seconds."""
+        out, wait = b"", first_wait
+        while time.monotonic() < deadline:
+            sock.settimeout(max(0.05, min(wait, deadline - time.monotonic())))
+            try:
+                chunk = sock.recv(65536)
+            except socket.timeout:
+                break
+            if not chunk:
+                break
+            out += chunk
+            wait = gap
+        return _strip_telnet(out).decode("utf-8", "replace")
+
+    try:
+        greeting = read(1.5, 0.3)
+        if re.search(r"password", greeting, re.I):
+            if not password:
+                raise AuthError("the telnet console asks for a password")
+            sock.sendall(password.encode("utf-8") + b"\r\n")
+            reply = read(3.0, 0.3)
+            if re.search(r"incorrect|wrong|denied|fail|invalid", reply, re.I):
+                raise AuthError("telnet password rejected")
+        sock.sendall(command.encode("utf-8") + b"\r\n")
+        out = read(min(5.0, timeout), quiet)
+        try:
+            sock.sendall(b"exit\r\n")
+        except OSError:
+            pass
+        return out
     finally:
         sock.close()
 

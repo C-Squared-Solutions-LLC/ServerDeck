@@ -1,0 +1,42 @@
+{
+  "template": "sunkenland",
+  "title": "Sunkenland",
+  "category": "Survival / crafting",
+  "description": "Sunkenland dedicated server (Steam app 2667530). It can't create a world: make one in the game, then copy its folder (<Name>~<GUID>) from %USERPROFILE%\\AppData\\LocalLow\\Vector3 Studio\\Sunkenland\\Worlds on your gaming PC into the same folder on this PC, and give the GUID (the part after ~) below. Admins and bans are Steam IDs in AdminSteamIDs.txt / BanSteamIDs.txt inside the world folder (Configs). Join password: at most 8 characters; 3-15 players. It has no remote console or Steam query, so ServerDeck shows it online by its ports, can't list players or warn them, and stops it with Ctrl+C - keep restarts rare. About 2-4 GB of RAM.",
+  "fields": [
+    {"key": "id", "label": "Short id", "default": "sunkenland", "help": "letters, numbers, - and _"},
+    {"key": "name", "label": "Display name", "default": "Sunkenland"},
+    {"key": "install_dir", "label": "Install folder", "default": "C:\\GameServers\\Sunkenland"},
+    {"key": "world_guid", "label": "World GUID", "default": "", "required": true, "help": "the part after ~ in the world's folder name"},
+    {"key": "password", "label": "Join password", "default": "", "secret": true, "help": "optional, at most 8 characters"},
+    {"key": "max_players", "label": "Max players", "type": "int", "default": 8, "help": "3-15"},
+    {"key": "region", "label": "Region", "default": "eu", "help": "e.g. eu, us, usw, asia, jp, au, sa, kr, in, za, cae"},
+    {"key": "port", "label": "Game port (UDP)", "type": "int", "default": 29000},
+    {"key": "query_port", "label": "Query port (UDP)", "type": "int", "default": 29002}
+  ],
+  "server": {
+    "id": "{id}",
+    "name": "{name}",
+    "type": "win_process",
+    "appid": 2667530,
+    "install_dir": "{install_dir}",
+    "steam_install_dir": "{install_dir}",
+    "manifest": "{install_dir}\\steamapps\\appmanifest_2667530.acf",
+    "exe": "Sunkenland-DedicatedServer.exe",
+    "args": ["-nographics", "-batchmode", "-worldGuid", "{world_guid}", "-password", "{password}", "-region", "{region}",
+             "-maxPlayerCapacity", "{max_players}", "-port", "{port}", "-queryport", "{query_port}",
+             "-logFile", "{install_dir}\\logs\\server.log"],
+    "ports": [["udp", "{port}"], ["udp", "{query_port}"]],
+    "query": null,
+    "stop_method": "ctrl_c",
+    "stop_timeout": 60,
+    "start_timeout": 600,
+    "firewall": "auto",
+    "schedule": {"enabled": false, "every_hours": 12, "start": "06:00", "warn_minutes": 0},
+    "backup": {"paths": ["{userprofile}\\AppData\\LocalLow\\Vector3 Studio\\Sunkenland\\Worlds"], "dest": "{backup_root}\\{id}"},
+    "config_files": ["{userprofile}/AppData/LocalLow/Vector3 Studio/Sunkenland/Worlds/*/AdminSteamIDs.txt",
+                     "{userprofile}/AppData/LocalLow/Vector3 Studio/Sunkenland/Worlds/*/BanSteamIDs.txt"],
+    "logs": {"server log": "{install_dir}\\logs\\server.log"},
+    "defaults": {"keep_online": true, "auto_update": true}
+  }
+}

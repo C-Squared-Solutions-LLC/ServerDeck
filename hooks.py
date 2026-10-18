@@ -14,6 +14,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+import cfgedit
 import winproc
 
 UA = {"User-Agent": "ServerDeck/1.0"}
@@ -414,10 +415,71 @@ def enshrouded_config(server, changed=False, force=False):
                                   "kick and ban but has no real password - set one under Configs")
 
 
+# --------------------------------------------------------------------------
+# Any game: a settings file written before the server starts (cfgedit.py does the editing)
+# --------------------------------------------------------------------------
+
+def settings(server, changed, force, spec):
+    """Prepare a settings file before a start. spec:
+      file     path, relative to install_dir or absolute
+      format   ini | cfg | xmlprop | xml | json | yaml (see cfgedit.py)
+      create   the file's text if it doesn't exist yet - or copy: a default file (relative) to start from
+      seed     {key: value} written once, the first time ServerDeck starts the server (name, slots, world):
+               afterwards the file is the admin's, edited under Configs
+      enforce  {key: value} written before every start - what ServerDeck relies on (ports, RCON)
+    A file the game writes on its first run (xml, no create/copy) gets its settings at the next start."""
+    install = Path(server.cfg["install_dir"])
+    path = Path(spec["file"])
+    path = path if path.is_absolute() else install / path
+    fmt = spec.get("format", "ini")
+    flag = "seeded-" + re.sub(r"[^A-Za-z0-9.]+", "_", str(spec["file"]))[-80:]
+    seed = {} if marker(server, flag) else dict(spec.get("seed") or {})
+    values = {k: server.mgr.secret(v) if isinstance(v, str) else v
+              for k, v in {**seed, **(spec.get("enforce") or {})}.items()}
+    if path.exists():
+        text, enc = cfgedit.read(path)
+    elif spec.get("create") is not None:
+        create = spec["create"]
+        text = create if isinstance(create, str) else json.dumps(create, indent=2) + "\n"
+        enc = "utf-8"
+    elif spec.get("copy") and (install / spec["copy"]).exists():
+        text, enc = cfgedit.read(install / spec["copy"])
+    elif fmt in ("ini", "cfg", "json", "yaml"):
+        text, enc = "", "utf-8"
+    else:
+        server.note(f"{path.name} isn't there yet - the game writes it on its first run; "
+                    "ServerDeck sets it up before the next start")
+        return
+    new = cfgedit.edit(text, fmt, values) if values else text
+    if new != text or not path.exists():
+        cfgedit.write(path, new, enc)
+        server.note(f"{path.name}: {', '.join(values) or 'created'}" + (" (first start)" if seed else ""))
+    if seed:
+        marker(server, flag, time.strftime("%Y-%m-%d %H:%M"))
+
+
+def helper(server, changed, force, rel, args=()):
+    """A program the server needs running first (ATLAS: its Redis database): started hidden in its own folder,
+    outside ServerDeck's job like the servers themselves, unless it already runs. It is left running when the
+    server stops - other servers of the same cluster may still use it."""
+    exe = Path(server.cfg["install_dir"]) / rel
+    if not exe.exists():
+        raise RuntimeError(f"{rel} not found - is the server installed?")
+    for pid in winproc.find_pids(exe.name):
+        path = winproc.image_path(pid)
+        if winproc.is_alive(pid) and (path is None or Path(path).resolve() == exe.resolve()):
+            return
+    pid, _ = winproc.launch_console_hidden([str(exe)] + [str(a) for a in args], cwd=str(exe.parent))
+    server.note(f"started {exe.name} (pid {pid})")
+    time.sleep(2)
+
+
 HOOKS = {
     "remove": remove,
     "remove_without_avx2": remove_without_avx2,
     "rotate": rotate,
+    "settings": settings,
+    "helper": helper,
     "cs2_gameinfo": cs2_gameinfo,
     "cs2_addons": cs2_addons,
     "rust_oxide": rust_oxide,

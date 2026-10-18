@@ -134,7 +134,11 @@ def list_processes():
 
 
 def find_pids(exe_name):
+    """Processes by image name; a name with * or ? is a pattern (e.g. "ConanSandboxServer-Win64-*.exe")."""
     name = exe_name.lower()
+    if "*" in name or "?" in name:
+        import fnmatch
+        return [pid for pid, _, exe in list_processes() if fnmatch.fnmatch(exe.lower(), name)]
     return [pid for pid, _, exe in list_processes() if exe.lower() == name]
 
 
@@ -326,16 +330,19 @@ def job_limits():
             "kill_on_close": bool(flags & 0x2000)}
 
 
-def launch_console_hidden(cmd, cwd):
+def launch_console_hidden(cmd, cwd, env=None):
     """Start a console program in its own hidden console (so Ctrl+C can reach it
     later), detached from this process and - where Windows allows it - outside
     the scheduled task's job object, so ending/restarting ServerDeck can never
-    take the game server down with it. Returns (pid, broke_away)."""
+    take the game server down with it. `env`: extra environment variables.
+    Returns (pid, broke_away)."""
     si = subprocess.STARTUPINFO()
     si.dwFlags |= STARTF_USESHOWWINDOW
     si.wShowWindow = SW_HIDE
     kw = dict(cwd=cwd, startupinfo=si, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
               stderr=subprocess.DEVNULL, close_fds=True)
+    if env:
+        kw["env"] = {**os.environ, **env}
     try:
         p = subprocess.Popen(cmd, creationflags=CREATE_NEW_CONSOLE | CREATE_BREAKAWAY_FROM_JOB, **kw)
         return p.pid, True

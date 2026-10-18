@@ -1,7 +1,8 @@
 """ServerDeck - runs the game servers on a Windows PC from one web page.
 
-Servers are listed in config.json (add them from templates in the UI: SCUM, Space Engineers,
-Counter-Strike 2, Rust, Palworld, Enshrouded). ServerDeck keeps the ones that should be online running, installs game
+Servers are listed in config.json (add them from templates in the UI - 28 games, survival / crafting,
+sandbox / sim and shooters: SCUM, Rust, ARK, Valheim, 7 Days to Die, Space Engineers, Farming Simulator,
+CS2, TF2, ...). ServerDeck keeps the ones that should be online running, installs game
 updates with SteamCMD and re-applies mods afterwards (hooks.py: Metamod/CounterStrikeSharp,
 Oxide), restarts servers on a schedule with player warnings, backs up configs and worlds and
 restores them (backups.py), runs optional "sidecar" programs only while their server is online,
@@ -388,7 +389,7 @@ class Server:
         kind = self.cfg.get("announce")
         try:
             if kind == "rcon_say":
-                self.rcon(f"say {msg}", timeout=5)
+                self.rcon(self.cfg["rcon"].get("say", "say {msg}").replace("{msg}", msg), timeout=5)
             elif kind == "se_chat":
                 api = self.cfg["remote_api"]
                 se_api.chat(api["port"], self.mgr.secret(api["key"]), msg)
@@ -536,6 +537,12 @@ class Server:
 
     def _apply_update(self, force=False):
         changed = False
+        if not self.cfg.get("appid"):
+            # Installed from somewhere else (Farming Simulator: the game's own install) - nothing to download.
+            if force:
+                raise RuntimeError(f"{self.name} isn't installed by SteamCMD - update it where it came from "
+                                   "(Steam or the game's installer)")
+            return
         if force or self.game_behind():
             before = self.installed_build()
             # Config files that ship with the game (CS2's cfg/server.cfg) are put
@@ -716,11 +723,13 @@ class Server:
 
     # ---- RCON -------------------------------------------------------------
     def rcon(self, command, timeout=10):
+        """One console command: Source RCON, Rust WebRCON or a telnet console ("kind"). A game's own
+        commands for warnings and clean stops are in "say" ("say {msg}") and "stop" (["quit"])."""
         r = self.cfg.get("rcon")
         if not r:
             raise RuntimeError(f"{self.name} has no RCON")
-        password = self.mgr.secret(r["password"])
-        fn = rconlib.source if r["kind"] == "source" else rconlib.web
+        password = self.mgr.secret(r.get("password") or "")
+        fn = {"source": rconlib.source, "web": rconlib.web, "telnet": rconlib.telnet}[r["kind"]]
         return fn("127.0.0.1", r["port"], password, command, timeout)
 
     # ---- status -----------------------------------------------------------
@@ -778,6 +787,12 @@ class Server:
             # No Steam query (SCUM, Palworld): use the player count the server reports itself.
             st.update(players=self.perf["players"], humans=self.perf["players"], bots=0,
                       max_players=self.perf.get("max_players"))
+        if st.get("players") is None and st.get("online") and playerslib.source(self.cfg) not in (None, "a2s"):
+            # No Steam query either (ARK: Survival Ascended): count the list the players poll got over RCON.
+            c = self.mgr.players.cache.get(self.id) or {}
+            if c.get("error") is None and "online" in c and time.time() - c.get("at", 0) < 90:
+                n = len(c["online"])
+                st.update(players=n, humans=n, bots=0, max_players=self.cfg.get("max_players"))
         if not st.get("server_name") and self.cfg.get("name_setting"):
             # No Steam query to ask (SCUM): show the name from the server's own settings file.
             st["server_name"] = self._setting(self.cfg["name_setting"])
@@ -844,26 +859,38 @@ class Server:
             next_restart=nr.timestamp() if (nr := self.next_restart()) else None,
             can_announce=self.can_announce(), announce=self.cfg.get("announce"),
             health=self.health, events=self.mgr.community.server_events(self),
-            installed=Path(self.cfg["manifest"]).exists() if self.cfg.get("manifest") else True,
+            installed=(Path(self.cfg["manifest"]).exists() if self.cfg.get("manifest")
+                       else self.exe().exists() if self.cfg.get("exe") else True),
+            steam_app=bool(self.cfg.get("appid")),
         )
         return st
 
 
 class WinProcessServer(Server):
-    """A server that runs as a plain process (SCUM, CS2, Rust, Palworld, Enshrouded)."""
+    """A server that runs as a plain process - every template except Space Engineers'."""
 
     def exe(self):
-        return Path(self.cfg["install_dir"]) / self.cfg["exe"]
+        """The program to start; "exe_fallback" if "exe" isn't there (a 32-bit srcds.exe where a game's
+        public branch has no srcds_win64.exe)."""
+        path = Path(self.cfg["install_dir"]) / self.cfg["exe"]
+        alt = self.cfg.get("exe_fallback")
+        if alt and not path.exists() and (Path(self.cfg["install_dir"]) / alt).exists():
+            return Path(self.cfg["install_dir"]) / alt
+        return path
 
     def find_pid(self):
+        """The server's process. "process" names it when "exe" is only a launcher that starts the real server
+        and exits (Conan Exiles, ICARUS): an image name or pattern, anywhere inside install_dir."""
         exe = self.exe()
-        for pid in winproc.find_pids(exe.name):
+        pattern = self.cfg.get("process")
+        root = Path(self.cfg["install_dir"]).resolve()
+        for pid in winproc.find_pids(pattern or exe.name):
             # A process that has just exited can linger in the process list
             # (e.g. while another tool still holds a handle to it) - skip those.
             if not winproc.is_alive(pid):
                 continue
             path = winproc.image_path(pid)
-            if path is None or Path(path).resolve() == exe.resolve():
+            if path is None or (root in Path(path).resolve().parents if pattern else Path(path).resolve() == exe.resolve()):
                 return pid
         return None
 
@@ -878,17 +905,30 @@ class WinProcessServer(Server):
     def _start(self):
         if self.find_pid():
             return
+        exe = self.exe()
+        if not exe.exists():
+            raise RuntimeError(f"{exe} not found - install the server first")
         self._hooks("pre_start")
         self.mgr.players.before_start(self)          # bans kept in a file (SCUM's BannedUsers.ini)
-        exe = self.exe()
-        args = [self.mgr.secret(a) for a in self.cfg.get("args", [])]
-        pid, detached = winproc.launch_console_hidden([str(exe)] + args, cwd=str(exe.parent))
+        args = [self.mgr.secret(str(a)) for a in self.cfg.get("args", [])]
+        cmd = [str(exe)] + args
+        if self.cfg.get("raw_args"):
+            # Unreal only reads -Key="Value with spaces" written exactly like that: the template does the
+            # quoting, so the arguments go on the command line as they are.
+            cmd = subprocess.list2cmdline([str(exe)]) + " " + " ".join(args)
+        env = {k: self.mgr.secret(str(v)) for k, v in (self.cfg.get("env") or {}).items()}   # Valheim: SteamAppId
+        cwd = Path(self.cfg["install_dir"]) / self.cfg["cwd"] if self.cfg.get("cwd") else exe.parent
+        pid, detached = winproc.launch_console_hidden(cmd, cwd=str(cwd), env=env or None)
         self.note(f"launched {exe.name} (pid {pid}{', outside the task job' if detached else ''})")
-        deadline = time.time() + self.cfg.get("start_timeout", 600)
+        launched = time.time()
+        deadline = launched + self.cfg.get("start_timeout", 600)
         while time.time() < deadline:
             time.sleep(5)
             self.refresh()
             if not self.status["running"]:
+                # A launcher ("process" set) can take a moment to start the real server.
+                if self.cfg.get("process") and (winproc.is_alive(pid) or time.time() - launched < 60):
+                    continue
                 raise RuntimeError("the server process exited during startup - check its log")
             if self.status["online"]:
                 return
@@ -901,15 +941,18 @@ class WinProcessServer(Server):
         method = self.cfg.get("stop_method", "terminate")
         timeout = self.cfg.get("stop_timeout", 90)
         if method == "rcon":
+            *before, last = self.cfg["rcon"].get("stop") or ["quit"]    # e.g. ARK: SaveWorld, then DoExit
             try:
-                self.rcon("quit", timeout=10)
+                for cmd in before:
+                    self.rcon(cmd, timeout=120)
+                self.rcon(last, timeout=10)
             except (ConnectionRefusedError, rconlib.AuthError) as e:
-                self.mgr.events.add("warn", self.id, f"RCON quit not possible ({e}) - terminating")
+                self.mgr.events.add("warn", self.id, f"RCON {last} not possible ({e}) - terminating")
                 timeout = 0
             except Exception:
                 pass  # "quit" usually drops the connection before any reply
             if timeout and winproc.wait_exit(pid, timeout):
-                self.note("stopped cleanly via RCON quit")
+                self.note(f"stopped cleanly via RCON {' + '.join(before + [last])}")
                 return
             if timeout:
                 self.mgr.events.add("warn", self.id, f"no clean exit after {timeout}s - terminating")

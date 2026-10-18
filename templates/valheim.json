@@ -1,0 +1,43 @@
+{
+  "template": "valheim",
+  "title": "Valheim",
+  "category": "Survival / crafting",
+  "description": "Valheim dedicated server (Steam app 896660) - two UDP ports (game port and the next one for the Steam query). Its world, logs and admin lists live in a save folder next to the server, so backups include them. The join password must be at least 5 characters and must not be part of the server name. Valheim has no remote console: players can't be warned before a restart (updates wait until nobody is on), ServerDeck sees only who is on, and bans and admins are Steam IDs in bannedlist.txt / adminlist.txt (Configs), or an admin's F5 console in game. Stops use Ctrl+C, which saves the world. Crossplay (Xbox / Game Pass) is off - add -crossplay to its arguments in config.json to turn it on. About 2-4 GB of RAM.",
+  "fields": [
+    {"key": "id", "label": "Short id", "default": "valheim", "help": "letters, numbers, - and _"},
+    {"key": "name", "label": "Display name", "default": "Valheim"},
+    {"key": "install_dir", "label": "Install folder", "default": "C:\\GameServers\\Valheim"},
+    {"key": "server_name", "label": "Server name (in the server list)", "default": "My Valheim Server"},
+    {"key": "world", "label": "World name", "default": "Dedicated", "help": "a new world is made if there's none by that name"},
+    {"key": "password", "label": "Join password", "default": "", "secret": true, "generate": true, "help": "at least 5 characters, not part of the server name; left empty, a random one is made"},
+    {"key": "port", "label": "Game port (UDP)", "type": "int", "default": 2456, "help": "the next port (UDP) answers the Steam query"},
+    {"key": "public", "label": "Listed in the server browser (1 = yes, 0 = no)", "type": "int", "default": 1}
+  ],
+  "server": {
+    "id": "{id}",
+    "name": "{name}",
+    "type": "win_process",
+    "appid": 896660,
+    "install_dir": "{install_dir}",
+    "steam_install_dir": "{install_dir}",
+    "manifest": "{install_dir}\\steamapps\\appmanifest_896660.acf",
+    "exe": "valheim_server.exe",
+    "args": ["-nographics", "-batchmode", "-name", "{server_name}", "-port", "{port}", "-world", "{world}",
+             "-password", "{password}", "-public", "{public}", "-savedir", "{install_dir}\\save",
+             "-logfile", "{install_dir}\\logs\\valheim_server.log"],
+    "env": {"SteamAppId": "892970"},
+    "ports": [["udp", "{port}"], ["udp", "{port+1}"]],
+    "query": {"port": "{port+1}"},
+    "player_notes": {"ban": "Valheim bans by Steam ID in bannedlist.txt (one per line, under Configs; it reads the list while it runs), or an admin types ban <name> in the F5 console.",
+                     "roles": "Admins: Steam IDs in adminlist.txt (Configs). permittedlist.txt turns the server into whitelist-only."},
+    "stop_method": "ctrl_c",
+    "stop_timeout": 120,
+    "start_timeout": 600,
+    "firewall": "auto",
+    "schedule": {"enabled": false, "every_hours": 12, "start": "06:00", "warn_minutes": 0},
+    "backup": {"paths": ["save"], "dest": "{backup_root}\\{id}"},
+    "config_files": ["save/adminlist.txt", "save/bannedlist.txt", "save/permittedlist.txt"],
+    "logs": {"server log": "{install_dir}\\logs\\valheim_server.log"},
+    "defaults": {"keep_online": true, "auto_update": true}
+  }
+}

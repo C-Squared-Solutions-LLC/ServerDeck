@@ -1,0 +1,39 @@
+{
+  "template": "fs25",
+  "title": "Farming Simulator 25",
+  "category": "Sandbox / sim",
+  "description": "Farming Simulator 25's dedicated server comes with the game - there is no free server download - and Giants requires a separate game licence for it: you can't host and play on the same one. Install the game on this PC (Steam - then the Steam client must stay running - or the Giants version, which Giants recommends for servers), and point the install folder at it. ServerDeck runs and keeps up its dedicatedServer.exe, the web page you manage the game server from (http://127.0.0.1:<web port>): start the farm there and turn on its autostart. On the first start ServerDeck sets the web page's admin login in dedicatedServer.xml; it opens the web port and the game port in the firewall, and backs up the savegames (Documents\\My Games\\FarmingSimulator2025). Updates come from Steam / Giants, not SteamCMD. Players, warnings and kicks: on the web page. Giants: 8 GB of RAM, 16 recommended.",
+  "fields": [
+    {"key": "id", "label": "Short id", "default": "fs25", "help": "letters, numbers, - and _"},
+    {"key": "name", "label": "Display name", "default": "Farming Simulator 25"},
+    {"key": "install_dir", "label": "Game folder", "default": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Farming Simulator 25", "help": "where the game is installed (Giants version: e.g. C:\\Program Files\\Farming Simulator 2025)"},
+    {"key": "web_port", "label": "Web page port (TCP)", "type": "int", "default": 8091, "help": "8080 is the usual one (Space Engineers' Remote API has it on this PC)"},
+    {"key": "web_user", "label": "Web page admin name", "default": "admin"},
+    {"key": "web_password", "label": "Web page admin password", "default": "", "secret": true, "generate": true, "help": "left empty, a random one is made"},
+    {"key": "port", "label": "Game port (TCP + UDP)", "type": "int", "default": 10823, "help": "the port set on the web page"}
+  ],
+  "server": {
+    "id": "{id}",
+    "name": "{name}",
+    "type": "win_process",
+    "install_dir": "{install_dir}",
+    "exe": "dedicatedServer.exe",
+    "args": [],
+    "ports": [["tcp", "{web_port}"]],
+    "extra_ports": [["tcp", "{port}"], ["udp", "{port}"]],
+    "query": null,
+    "stop_method": "ctrl_c",
+    "stop_timeout": 60,
+    "start_timeout": 300,
+    "firewall": "auto",
+    "schedule": {"enabled": false, "every_hours": 24, "start": "06:00", "warn_minutes": 0},
+    "pre_start": [["settings", {"file": "dedicatedServer.xml", "format": "xml",
+      "seed": {"webserver/initial_admin/username": "{web_user}", "webserver/initial_admin/passphrase": "{web_password}"},
+      "enforce": {"webserver@port": "{web_port}"}}]],
+    "backup": {"paths": ["{documents}\\My Games\\FarmingSimulator2025"], "exclude": ["mods", "shader_cache", "log*.txt"],
+               "dest": "{backup_root}\\{id}"},
+    "config_files": ["dedicatedServer.xml", "{documents}/My Games/FarmingSimulator2025/dedicated_server/*.xml"],
+    "logs": {"game log": "{documents}\\My Games\\FarmingSimulator2025\\log.txt"},
+    "defaults": {"keep_online": true, "auto_update": false}
+  }
+}

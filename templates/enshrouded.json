@@ -1,6 +1,7 @@
 {
   "template": "enshrouded",
   "title": "Enshrouded",
+  "category": "Survival / crafting",
   "description": "Enshrouded dedicated server (Steam app 2278520) - one UDP port. Before the first start ServerDeck writes enshrouded_server.json with passwords for the Admin and Friend groups; leave the Guest password empty and anyone can join as a guest (explore and dig, but no bases or chests). Edit everything else under Configs. Enshrouded has no RCON, so players can't be warned before a restart (updates wait until nobody is on) and ServerDeck sees only the names of who is on (Steam query) - kicks, bans and admin rights come with the group passwords in game. Stops use Ctrl+C, which saves the world.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "enshrouded", "help": "letters, numbers, - and _"},
@@ -28,6 +29,8 @@
     "enshrouded": {"server_name": "{server_name}", "port": "{port}", "slots": "{slots}",
                    "admin_password": "{admin_password}", "friend_password": "{friend_password}",
                    "guest_password": "{guest_password}"},
+    "player_notes": {"ban": "Enshrouded can't ban from here: an admin bans in game (its list holds hashed accounts, not Steam IDs).",
+                     "roles": "Roles come with the server's passwords: the Admin, Friend and Guest group passwords."},
     "stop_method": "ctrl_c",
     "stop_timeout": 120,
     "start_timeout": 900,

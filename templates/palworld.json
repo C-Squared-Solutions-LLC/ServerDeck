@@ -1,6 +1,7 @@
 {
   "template": "palworld",
   "title": "Palworld",
+  "category": "Survival / crafting",
   "description": "Palworld dedicated server (Steam app 2394010), listed as a community server. On the first start ServerDeck creates PalWorldSettings.ini (edit it under Configs) and it keeps Palworld's REST API switched on - only this PC can reach it, its port is never opened - for who is on (kick and ban Steam players), player counts, server FPS, restart warnings in chat and saving the world on every stop. Palworld has no per-player admin list: admins use the admin password in game. Pocketpair recommends 16 GB of RAM for the server alone.",
   "fields": [
     {"key": "id", "label": "Short id", "default": "palworld", "help": "letters, numbers, - and _"},

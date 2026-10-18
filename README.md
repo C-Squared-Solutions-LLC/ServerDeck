@@ -4,8 +4,20 @@
 updates (and re-applies mods afterwards), restarts them on a schedule with in-game warnings, backs up
 their configs and worlds - with a restore button - and tells your Discord what's happening.
 
-Built-in templates: **SCUM**, **Space Engineers**, **Counter-Strike 2** (Metamod + CounterStrikeSharp),
-**Rust** (Oxide), **Palworld**, **Enshrouded**. Pure Python standard library - nothing to `pip install`.
+Built-in templates (28):
+- **Survival / crafting** - 7 Days to Die, ARK: Survival Ascended, ATLAS, Conan Exiles (Enhanced), Empyrion,
+  Enshrouded, ICARUS, Myth of Empires, Palworld, Rust (Oxide), SCUM, Sons of the Forest, Sunkenland, The Front,
+  Valheim
+- **Sandbox / sim** - Space Engineers, Farming Simulator 22, Farming Simulator 25 (the server comes with the
+  game and needs its own licence)
+- **Shooters** - Counter-Strike 2 (Metamod + CounterStrikeSharp), Counter-Strike: Source, Team Fortress 2,
+  Garry's Mod, Day of Defeat: Source, Half-Life 2: Deathmatch, Half-Life Deathmatch: Source,
+  Natural Selection 2, Serious Sam 3: BFE, Serious Sam Fusion 2017
+
+SCUM, Space Engineers, CS2 and Rust run on the author's PC; the other templates are checked against each
+game's published server documentation and a simulated start, not long-running servers - report what breaks.
+(Deadside has no template: its server files are only available to licensed hosting companies.)
+Pure Python standard library - nothing to `pip install`.
 
 ## What it does
 
@@ -15,9 +27,10 @@ Built-in templates: **SCUM**, **Space Engineers**, **Counter-Strike 2** (Metamod
   crash loop instead of hammering.
 - **Updates with SteamCMD** on its own, re-installs Metamod/CounterStrikeSharp (CS2) or Oxide (Rust)
   after game updates, and protects config files a "validate" would reset.
-- **Restart schedules** (e.g. every 6 h) with countdown warnings in chat (CS2/Rust over RCON, Space
-  Engineers over its Remote API, Palworld over its REST API, SCUM through its own notification file;
-  Enshrouded has no way to message players).
+- **Restart schedules** (e.g. every 6 h) with countdown warnings in chat (over RCON or telnet - Source
+  games, Rust, ARK / ATLAS, Conan, 7 Days to Die, Empyrion - Space Engineers' Remote API, Palworld's REST
+  API, SCUM's own notification file). Games with no way to message players (Valheim, Enshrouded, ...)
+  restart without warnings, and their updates wait until nobody is on.
 - **"Struggling" alarm**: the page turns red when a server stops answering or its tick rate drops, or
   the PC runs out of RAM/CPU.
 - **Configs & backups**: a link to every server's config files (view, edit, download). Config files are
@@ -129,6 +142,13 @@ work across servers.
 | Rust | RCON `playerlist` | `banid` - right away | yes | `ownerid` / `moderatorid` - right away (`users.cfg` while stopped) |
 | Palworld | REST API | REST API - right away (Steam players; crossplay console players in game) | Steam players | - (admins use the admin password in game) |
 | Enshrouded | Steam query - names only | - (in game) | - | - (the group passwords) |
+| CS:S, TF2, Garry's Mod, DoD:S, HL2:DM, HLDM:S | RCON `status` | `banid` + `writeid` - right away, and again after every start | yes | - (RCON password, or SourceMod / ULX files under Configs) |
+| ARK: Survival Ascended | RCON `ListPlayers` (Epic ids) | in its RCON console (`BanPlayer <id>`) | in its RCON console | - (`AllowedCheaterAccountIDs.txt`) |
+| ATLAS | RCON `ListPlayers` | `BanPlayer` - right away | yes | - (`AllowedCheaterSteamIDs.txt`) |
+| 7 Days to Die | telnet `listplayers` | `ban add` - right away | yes | - (`serveradmin.xml`) |
+| Conan Exiles | RCON `listplayers` | - (admin panel in game) | - | - (admin password) |
+| Valheim, Sons of the Forest, ICARUS, Empyrion, NS2 | Steam query - names only | - (the game's own ban list / admin tools) | - | - (its admin list file, under Configs) |
+| The Front, Myth of Empires, Sunkenland, Serious Sam 3 / Fusion, Farming Simulator | - (no query ServerDeck can use) | - | - | - |
 
 **Servers** - add a server from a template, remove one (its files stay on disk), set the SteamCMD path
 (or download SteamCMD) and the backups folder. ServerDeck restarts itself to load changes.
@@ -168,23 +188,41 @@ one entry - the templates in `templates/` show every option. The most useful one
 | `install_dir`, `exe`, `args` | where it is and how it starts (`{bat:file:VAR}`, `{toml:file:key}`, `{xml:file:Tag}` read secrets from other files) |
 | `ports`, `query` | ports that must be listening, Steam query port - "online" needs all of them |
 | `name_setting` | for servers without a Steam query (SCUM): where to read the server name shown on the card, e.g. `{"file": "...\\ServerSettings.ini", "key": "scum.ServerName"}` |
-| `rcon` | `{"kind": "source" or "web", "port", "password"}` for console, warnings and clean stops |
+| `rcon` | `{"kind": "source", "web" or "telnet", "port", "password"}` for console, warnings and clean stops; a game's own commands go in `"say"` (default `"say {msg}"`, e.g. ARK `"ServerChat {msg}"`) and `"stop"` (default `["quit"]`, e.g. `["SaveWorld", "DoExit"]`) |
+| `env` | extra environment variables for the server process, e.g. Valheim's `{"SteamAppId": "892970"}` |
 | `rest_api` | Palworld: `{"port", "password"}` of its REST API - players, server FPS, warnings, save + clean stop (`stop_method`/`announce`/`perf` `palworld_rest`) |
 | `stop_method` | `rcon` (quit), `ctrl_c`, `palworld_rest` or `terminate` (the default) |
 | `schedule` | default restart cycle (`every_hours`, `start`, `warn_minutes`) - change it in the UI |
 | `config_files` | globs (relative to `install_dir` or absolute) shown under Configs and backed up |
 | `backup` | `{"paths": [...], "exclude": [...], "dest": ...}` full backups before restarts/updates |
-| `pre_start`, `post_update` | hooks from `hooks.py`, e.g. `["cs2_addons"]`, `["rust_oxide"]` |
+| `pre_start`, `post_update` | hooks from `hooks.py`, e.g. `["cs2_addons"]`, `["rust_oxide"]`, or `["settings", {...}]` (below) |
+| `appid` | the SteamCMD app; leave it out for a server installed some other way (Farming Simulator's dedicated server comes with the game) - ServerDeck then only runs it |
 | `health` | floors for the struggling alarm (`min_fps_busy`, `min_sim_speed`, ...) |
 | `sidecar` | a Python helper started only while the server is online (`dir`, `script`, `port`, `label`). If it has an admin API - `GET /players`, `POST /ban` `{steam_id, ban_type, scope, reason_code, details}`, `POST /unban` `{ban_id}`, header `X-Admin-Key` = `admin_api_key` in its `config.toml` or an `admin_key` setting here - **Ban...** offers a device ban |
 | `role_flags` | CS2: CounterStrikeSharp flags per role, e.g. `{"admin": ["@css/root", "@myplugin/admin"]}` (default admin `@css/root`, moderator kick/ban/chat flags) |
-| `players` | where the player list comes from, if not the obvious one: `scum_log`, `se_remote`, `cs2_rcon`, `rust_rcon`, `palworld_rest` or `a2s` |
+| `players` | where the player list comes from, if not the obvious one: `scum_log`, `se_remote`, `cs2_rcon`, `srcds_rcon`, `rust_rcon`, `palworld_rest`, `ark_rcon`, `asa_rcon`, `7dtd_telnet`, `conan_rcon` or `a2s`; `player_notes` (`{"ban", "roles"}`) says how the game does bans and admins, `max_players` the cap when there is no Steam query |
+| `process` | the server's real process when `exe` is only a launcher that starts it (Conan Exiles, ICARUS) - an image name or pattern inside `install_dir` |
+| `exe_fallback` | started instead of `exe` when that isn't there (`srcds.exe` for `srcds_win64.exe`) |
+| `cwd` | working folder relative to `install_dir` (default: the exe's folder) |
+| `raw_args` | `true`: `args` go on the command line exactly as written - Unreal's `-Key="Value with spaces"` needs that |
+| `extra_ports` | ports opened in the firewall but not required for "online" (Farming Simulator's game port) |
 
 `backups` (top level) sets the backup folder and retention, `community` the Discord name and
 leaderboard; both are also editable in the UI.
 
 **Write your own template**: copy one in `templates/`, change `fields` (asked in the UI) and the `server`
-block - `{field}` placeholders are filled in, `{backup_root}` too.
+block - `{field}` placeholders are filled in, `{backup_root}`, `{userprofile}` and `{documents}` too, and
+`{port+1}` adds to a number field. In `args`, an empty optional setting is left out (`"-password", ""` or
+`"-Name={field}"`). A field can be `"required": true`. `category` puts the template in a group of the
+Add-a-server list.
+
+**Settings files before a start** - `["settings", {"file", "format", "seed", "enforce", "create" | "copy"}]` in
+`pre_start` edits a game's settings file in place (comments, order and encoding stay as they are):
+`format` is `ini` (`"Section/Key"`), `cfg` (Source `name "value"`), `xmlprop` (7 Days to Die
+`<property name= value=>`), `xml` (`"a/b"` text, `"a/b@attr"`), `json` (`"a.b"`) or `yaml` (`Key: value`,
+`"Section/Key"` to add one). `seed` is written once, on the first start (server name, slots, world - the file
+is yours afterwards); `enforce` before every start (what ServerDeck relies on: ports, RCON). `create` gives
+the text of a file that doesn't exist yet, `copy` a default file to start from.
 
 ## Security
 
@@ -211,7 +249,8 @@ then press **Restart ServerDeck** in the page.
 | `players.py` | who is on, first seen / time played, kicks, bans, admin and moderator roles |
 | `trends.py` | player counts over time for the graphs |
 | `setupwiz.py`, `templates/` | adding and removing servers |
-| `hooks.py` | per-game maintenance (mods after updates, SCUM notifications, Palworld/Enshrouded settings files) |
+| `hooks.py` | per-game maintenance (mods after updates, SCUM notifications, Palworld/Enshrouded settings files, the generic `settings` step) |
+| `cfgedit.py` | in-place editors for settings files (ini, Source cfg, xml, json, yaml) |
 | `steam.py`, `a2s.py`, `rcon.py`, `se_api.py`, `palworld.py`, `winproc.py` | SteamCMD, Steam queries, RCON, Space Engineers and Palworld APIs, Windows process control |
 | `install.ps1` | installer / uninstaller |
 

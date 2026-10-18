@@ -2,11 +2,15 @@
 "Servers" dialog. config.json is backed up before every change and ServerDeck restarts to load it.
 
 A template has "fields" (asked in the UI) and a "server" block whose "{field}" placeholders
-are filled in ("{backup_root}" too). A string that is only a placeholder takes the field's type
-(ports stay numbers). In "args", a "+setting" whose value ends up empty is dropped (no GSLT given).
+are filled in ("{backup_root}", "{userprofile}" and "{documents}" too; "{port+1}" adds to a number
+field). A string that is only a placeholder takes the field's type (ports stay numbers). In "args",
+a "+setting" / "-setting" whose value ends up empty is dropped (no GSLT given), and so is a
+"-Setting={field}" switch with an empty field. "extra_ports" are opened in the firewall without
+being required for "online".
 """
 import io
 import json
+import os
 import re
 import secrets
 import shutil
@@ -20,7 +24,7 @@ from pathlib import Path
 import winproc
 
 ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,19}")
-PLACEHOLDER = re.compile(r"\{(\w+)\}")
+PLACEHOLDER = re.compile(r"\{(\w+)(?:([+-])(\d+))?\}")      # {port}, or {port+1} for a number field
 RESERVED_IDS = {"deck", "settings", "setup"}
 STEAMCMD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
 
@@ -53,15 +57,20 @@ class Setup:
         return Path(cfg.get("backups", {}).get("root") or (self.here / "backups"))
 
     # ---- templates ----
+    CATEGORIES = ("Survival / crafting", "Sandbox / sim", "Shooters")
+
     def templates(self):
+        """Every template, grouped by "category" (the order of CATEGORIES, others last) for the UI."""
         out = []
         for f in sorted(self.tdir.glob("*.json")):
             try:
                 t = json.loads(f.read_text(encoding="utf-8"))
-                out.append({k: t[k] for k in ("template", "title", "description", "fields")})
+                out.append({**{k: t[k] for k in ("template", "title", "description", "fields")},
+                            "category": t.get("category") or "Other"})
             except (ValueError, KeyError):
                 pass
-        return out
+        order = {c: i for i, c in enumerate(self.CATEGORIES)}
+        return sorted(out, key=lambda t: (order.get(t["category"], len(order)), t["title"].lower()))
 
     def template(self, name):
         for f in self.tdir.glob("*.json"):
@@ -85,15 +94,28 @@ class Setup:
                 v = str(v if v is not None else "").strip()
                 if f.get("generate") and not v:
                     v = secrets.token_urlsafe(12)
+                if '"' in v:              # it ends up on command lines and in every kind of settings file
+                    raise ValueError(f"{f['label']} can't contain a double quote (\")")
+                if f.get("required") and not v:
+                    raise ValueError(f"{f['label']} is needed")
             vals[f["key"]] = v
         vals["backup_root"] = str(self.backup_root(cfg))
+        home = Path(os.environ.get("USERPROFILE") or Path.home())
+        vals.setdefault("userprofile", str(home))                     # the account ServerDeck runs as
+        vals.setdefault("documents", str(home / "Documents"))
+
+        def value(m):
+            v = vals[m.group(1)]
+            if m.group(2):                                            # {port+1}: the query port of Valheim & co
+                v = int(v) + int(m.group(3)) * (1 if m.group(2) == "+" else -1)
+            return v
 
         def sub(x):
             if isinstance(x, str):
                 m = PLACEHOLDER.fullmatch(x)
                 if m and m.group(1) in vals:
-                    return vals[m.group(1)]
-                return PLACEHOLDER.sub(lambda mm: str(vals[mm.group(1)]) if mm.group(1) in vals else mm.group(0), x)
+                    return value(m)
+                return PLACEHOLDER.sub(lambda mm: str(value(mm)) if mm.group(1) in vals else mm.group(0), x)
             if isinstance(x, list):
                 return [sub(i) for i in x]
             if isinstance(x, dict):
@@ -101,10 +123,15 @@ class Setup:
             return x
 
         srv = sub(json.loads(json.dumps(tpl["server"])))
+        # Optional settings left empty go away: "+setting" "" / "-setting" "" pairs and "-Setting={field}" switches.
+        raw = [str(a) for a in tpl["server"].get("args", [])]
         args, kept, i = [str(a) for a in srv.get("args", [])], [], 0
         while i < len(args):
-            if args[i].startswith("+") and i + 1 < len(args) and args[i + 1] == "":
+            if args[i][:1] in "+-" and i + 1 < len(args) and args[i + 1] == "" and raw[i + 1] != "":
                 i += 2
+                continue
+            if re.fullmatch(r"-[\w.]+=\{\w+\}", raw[i]) and args[i].endswith("="):
+                i += 1
                 continue
             kept.append(args[i])
             i += 1
@@ -168,7 +195,8 @@ class Setup:
             winproc.run_hidden(["netsh", "advfirewall", "firewall", "delete", "rule", f"name={name}"], timeout=30)
             if remove_only:
                 continue
-            ports = sorted({int(n) for p, n in srv.get("ports", []) if p == proto and int(n) != rcon_port})
+            ports = sorted({int(n) for p, n in srv.get("ports", []) + srv.get("extra_ports", [])
+                            if p == proto and int(n) != rcon_port})
             if ports:
                 r = winproc.run_hidden(["netsh", "advfirewall", "firewall", "add", "rule", f"name={name}", "dir=in",
                                         "action=allow", f"protocol={proto.upper()}",

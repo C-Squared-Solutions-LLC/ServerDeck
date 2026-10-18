@@ -603,7 +603,7 @@ function stateOf(s) {
 function card(s) {
   const [cls, label] = stateOf(s);
   const players = s.players != null
-    ? `${s.humans ?? s.players}/${s.max_players}${s.bots ? ` <small>+${s.bots} bots</small>` : ""}`
+    ? `${s.humans ?? s.players}${s.max_players != null ? "/" + s.max_players : ""}${s.bots ? ` <small>+${s.bots} bots</small>` : ""}`
     : (s.running ? "n/a" : "-");
   const ports = (s.ports || []).map((p) => `<span class="chip ${s.running ? (p.up ? "up" : "down") : ""}">${p.proto}/${p.port}</span>`).join(" ");
   const held = s.update_hold && s.auto_update
@@ -665,13 +665,16 @@ function card(s) {
     </div>
     ${who}
     ${notInstalled ? "" : trendBlock(s)}
-    <div class="row">build <b>${esc(s.installed_build || "?")}</b>${upd ? " · " + upd : ""} · ${checked}</div>
+    ${s.steam_app === false ? `<div class="row muted">installed and updated outside ServerDeck (Steam or the game's own installer)</div>`
+      : `<div class="row">build <b>${esc(s.installed_build || "?")}</b>${upd ? " · " + upd : ""} · ${checked}</div>`}
     ${mods || sidecar || plugins ? `<div class="row">${mods} ${plugins} ${sidecar}</div>` : ""}
     <div class="row">${ports}${s.pid ? ` <span class="chip">pid ${s.pid}</span>` : ""} ${perf}</div>
     ${schedule}
     ${evs ? `<div class="row">${evs}</div>` : ""}
     ${s.note ? `<div class="note">${esc(s.note)}</div>` : ""}
-    ${notInstalled && !busy ? `<div class="job">Not installed yet - press <b>Install</b> to download it with SteamCMD.</div>` : ""}
+    ${notInstalled && !busy ? (s.steam_app === false
+      ? `<div class="job">Not found yet - install the game as its template describes (Servers dialog), then press Start.</div>`
+      : `<div class="job">Not installed yet - press <b>Install</b> to download it with SteamCMD.</div>`) : ""}
     ${s.held ? `<div class="note">Auto-restart paused after repeated crashes. Press Start to try again.</div>` : ""}
     ${busy ? `<div class="job"><b>${esc(s.job.name)}</b> — ${cd ? `restarting in <b>${fmtDur(cd - nowS)}</b> · players are being warned
         <button data-act="cancel" style="margin-left:8px">Cancel restart</button>` : esc(s.job.step || "working")}
@@ -680,14 +683,14 @@ function card(s) {
       <button class="primary" data-act="start" ${busy || s.running ? "disabled" : ""}>Start</button>
       <button class="danger" data-act="stop" ${!s.running && !busy ? "disabled" : ""}>Stop</button>
       <button data-act="restart" ${busy || !s.running ? "disabled" : ""}>Restart</button>
-      <button data-act="update" ${busy ? "disabled" : ""} ${notInstalled ? `class="primary"` : ""}>${notInstalled ? "Install" : "Update now"}</button>
+      ${s.steam_app === false ? "" : `<button data-act="update" ${busy ? "disabled" : ""} ${notInstalled ? `class="primary"` : ""}>${notInstalled ? "Install" : "Update now"}</button>`}
       ${s.players_source ? `<button data-act="players" title="Who's on, how long they've played, kick, ban, admins and moderators">Players</button>` : ""}
       <button data-act="schedule">Schedule</button>
       <button data-act="log">${s.has_rcon ? "Logs & console" : "Logs"}</button>
       <button data-act="backups" title="Config files, config backups, full backups">Configs</button>
       <div class="toggles">
         <label class="tg" title="Start it again if it goes down"><input type="checkbox" data-set="keep_online" ${s.keep_online ? "checked" : ""}> keep online</label>
-        <label class="tg" title="Install game and mod updates automatically"><input type="checkbox" data-set="auto_update" ${s.auto_update ? "checked" : ""}> auto-update</label>
+        ${s.steam_app === false ? "" : `<label class="tg" title="Install game and mod updates automatically"><input type="checkbox" data-set="auto_update" ${s.auto_update ? "checked" : ""}> auto-update</label>`}
       </div>
     </div>
   </article>`;
@@ -1286,7 +1289,10 @@ function renderSetup() {
          <button type="button" class="danger" data-remove="${esc(s.id)}">Remove</button></td></tr>`).join("")}</table>`
     : `<p class="muted">No servers yet - add one below.</p>`;
   const keep = $("#suTemplate").value;
-  $("#suTemplate").innerHTML = su.templates.map((t) => `<option value="${esc(t.template)}">${esc(t.title)}</option>`).join("");
+  const groups = {};
+  for (const t of su.templates) (groups[t.category || "Other"] ||= []).push(t);
+  $("#suTemplate").innerHTML = Object.entries(groups).map(([cat, ts]) => `<optgroup label="${esc(cat)}">${ts
+    .sort((a, b) => a.title.localeCompare(b.title)).map((t) => `<option value="${esc(t.template)}">${esc(t.title)}</option>`).join("")}</optgroup>`).join("");
   if (keep && su.templates.some((t) => t.template === keep)) $("#suTemplate").value = keep;
   renderTemplateFields();
   const g = su.general;

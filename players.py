@@ -5,9 +5,14 @@ Who is online comes from what each game offers:
   SCUM             its login log (SaveFiles\\Logs\\login_*.log: "'<ip> <steamid>:<name>(<n>)' logged in/out")
   Space Engineers  the VRage Remote API (session/players)
   CS2              RCON "status_json"
+  other Source     RCON "status" (CS:S, TF2, Garry's Mod, DoD:S, HL2:DM, HLDM:S) - kickid / banid like CS2
   Rust             RCON "playerlist"
   Palworld         the REST API (players)
-  anything else    a Steam A2S player query - names only (Enshrouded)
+  ARK / ATLAS      RCON "ListPlayers" (ARK: Survival Ascended has Epic ids: listed, kicks/bans in its console)
+  7 Days to Die    its telnet console "listplayers" (kick, ban add / remove)
+  Conan Exiles     RCON "listplayers" (a table) - listing only
+  anything else    a Steam A2S player query - names only (Enshrouded, Valheim, ICARUS, ...)
+A template can put its own words about bans and roles in "player_notes" ({"ban", "roles"}).
 
 First seen / last seen / time played: ServerDeck notes everyone it sees online (players.json, every 30 s).
 SCUM keeps its own history in SCUM.db (user_profile.creation_time and play_time, in seconds), which
@@ -71,7 +76,9 @@ ROLES = ("admin", "moderator")
 
 
 def source(cfg):
-    """How a server reports its players: an explicit "players" setting, else what its config implies."""
+    """How a server reports its players: an explicit "players" setting (scum_log, se_remote, cs2_rcon,
+    srcds_rcon, rust_rcon, palworld_rest, ark_rcon, asa_rcon, 7dtd_telnet, conan_rcon, a2s), else what its
+    config implies."""
     if cfg.get("players"):
         return cfg["players"]
     if (cfg.get("perf") or {}).get("kind") == "scum_log":
@@ -165,6 +172,11 @@ class Game:
 
     def __init__(self, server):
         self.s = server
+        notes = server.cfg.get("player_notes") or {}       # a template's own words for its game
+        if notes.get("ban"):
+            self.ban_note = notes["ban"]
+        if notes.get("roles"):
+            self.role_note = notes["roles"]
 
     def online(self):
         return []
@@ -398,8 +410,11 @@ class CS2(Game):
     def _listed(self, forms):
         return _listed(forms, self.s.rcon("listid", timeout=5))
 
+    def _forms(self, steam_id):
+        return steam_forms(steam_id)
+
     def ban(self, steam_id, name, reason):
-        forms = steam_forms(steam_id)
+        forms = self._forms(steam_id)
         if not self._listed(forms):
             for f in forms:                                  # whichever form this build's banid takes
                 self.s.rcon(f"banid 0 {f}", timeout=5)
@@ -411,13 +426,13 @@ class CS2(Game):
         self.kick(steam_id, reason or "Banned")
 
     def unban(self, steam_id):
-        forms = steam_forms(steam_id)
+        forms = self._forms(steam_id)
         for f in forms:
             if not self._listed(forms):
                 break
             self.s.rcon(f"removeid {f}", timeout=5)
         if self._listed(forms):
-            raise RuntimeError("CS2 still lists the ban after removeid")
+            raise RuntimeError(f"{self.s.name} still lists the ban after removeid")
         self.s.rcon("writeid", timeout=5)
 
     def kick(self, steam_id, reason):
@@ -451,6 +466,57 @@ class CS2(Game):
             admins[label] = {"identity": steam_id, "flags": flags}
         self._admins().write_text(json.dumps(admins, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         return "takes effect when CS2 next starts"
+
+
+class Srcds(CS2):
+    """Classic Source servers - Counter-Strike: Source, Team Fortress 2, Garry's Mod, Day of Defeat: Source,
+    Half-Life 2: Deathmatch, Half-Life Deathmatch: Source: RCON "status", kickid <userid>, banid / writeid."""
+    roles = ()
+    role_note = ("These games have no built-in admin list: admins use the RCON password or an admin mod "
+                 "(SourceMod's addons/sourcemod/configs/admins_simple.ini, Garry's Mod's ULX) - edit it under Configs.")
+    ban_note = ("Banned players are kicked right away and the ban goes into banned_user.cfg (writeid); ServerDeck "
+                "bans again after every start too, in case server.cfg doesn't exec that file.")
+    # '#      2 "Name"   [U:1:12345678]  00:46  65  0 active 1.2.3.4:27005' (older games: STEAM_0:1:123;
+    # some put the slot before the name). Bots show BOT instead of an id.
+    STATUS = re.compile(r'^#\s*(\d+)\s+(?:\d+\s+)?"(.*)"\s+(\S+)(?:\s+([\d:]+)\s+(\d+))?')
+
+    def online(self):
+        out = []
+        for line in self.s.rcon("status", timeout=5).splitlines():
+            m = self.STATUS.match(line.strip())
+            sid = to_steam64(m.group(3)) if m else None
+            if sid:
+                out.append({"name": m.group(2) or "?", "steam_id": sid, "userid": m.group(1),
+                            "ping": int(m.group(5)) if m.group(5) else None})
+        return out
+
+    def _forms(self, steam_id):
+        acct = int(steam_id) - STEAM64_BASE
+        return [f"[U:1:{acct}]", f"STEAM_0:{acct & 1}:{acct >> 1}", f"STEAM_1:{acct & 1}:{acct >> 1}"]
+
+    def ban(self, steam_id, name, reason):
+        forms = self._forms(steam_id)
+        if not self._listed(forms):
+            for f in forms:                                  # whichever form this game's banid takes
+                self.s.rcon(f"banid 0 {f}", timeout=5)
+                if self._listed(forms):
+                    break
+            else:
+                raise RuntimeError(f"{self.s.name} did not take the ban (banid)")
+        self.s.rcon("writeid", timeout=5)
+        try:
+            self.kick(steam_id, reason or "Banned")
+        except RuntimeError:
+            pass                                             # not on right now
+
+    def kick(self, steam_id, reason):
+        p = next((p for p in self.online() if p["steam_id"] == steam_id), None)
+        if not p:
+            raise RuntimeError("that player isn't on the server")
+        self.s.rcon(f'kickid {p["userid"]} "{clean(reason) or "Kicked by an admin"}"', timeout=5)
+
+    def staff(self):
+        return []
 
 
 class Rust(Game):
@@ -544,9 +610,90 @@ class Palworld(Game):
         self._call("POST", "kick", {"userid": f"steam_{steam_id}", "message": reason or "Kicked by an admin."})
 
 
+class Ark(Game):
+    """ARK-style RCON (ATLAS): ListPlayers gives "0. Name, <id>" per line ("No Players Connected" when
+    empty); ATLAS ids are SteamID64s. KickPlayer / BanPlayer / UnbanPlayer <id>."""
+    can_kick = can_ban = True
+    ban_note = "Banned players are kicked right away; the game keeps the ban in its own list."
+    role_note = ("Admins type the admin password in game (EnableCheats <password>), or list their ids in "
+                 "ShooterGame\\Saved\\AllowedCheaterSteamIDs.txt (Configs).")
+    LINE = re.compile(r"^\s*\d+\.\s*(.+?),\s*([0-9a-fA-F]{32}|\d{17})\s*$")
+
+    def _list(self):
+        return [m.groups() for line in self.s.rcon("ListPlayers", timeout=5).splitlines() if (m := self.LINE.match(line))]
+
+    def online(self):
+        return [{"name": name, "steam_id": pid} for name, pid in self._list() if STEAM_ID.fullmatch(pid)]
+
+    def kick(self, steam_id, reason):
+        self.s.rcon(f"KickPlayer {steam_id}", timeout=5)
+
+    def ban(self, steam_id, name, reason):
+        self.s.rcon(f"BanPlayer {steam_id}", timeout=5)
+
+    def unban(self, steam_id):
+        self.s.rcon(f"UnbanPlayer {steam_id}", timeout=5)
+
+
+class ArkAscended(Ark):
+    """ARK: Survival Ascended lists Epic (EOS) ids, not Steam ids: who is on shows here with the id, and
+    kicks / bans are typed in the RCON console (KickPlayer / BanPlayer <id>)."""
+    can_kick = can_ban = False
+    ban_note = ("ARK: Survival Ascended players have Epic ids, not Steam ids: kick or ban them in the RCON console "
+                "(Logs & console) with KickPlayer <id> / BanPlayer <id> - the id is shown next to each name.")
+    role_note = ("Admins type the admin password in game (cheat EnableCheats <password>), or list their Epic ids in "
+                 "ShooterGame\\Saved\\AllowedCheaterAccountIDs.txt (Configs).")
+
+    def online(self):
+        return [{"name": name, "steam_id": None, "info": f"id {pid}"} for name, pid in self._list()]
+
+
+class SevenDays(Game):
+    """7 Days to Die over its telnet console: listplayers ("1. id=171, Name, pos=(..), ... pltfmid=Steam_<id>,
+    ... ping=40"), kick / ban add / ban remove with the platform id."""
+    can_kick = can_ban = True
+    ban_note = "Banned players are kicked right away; 7 Days to Die keeps the ban in serveradmin.xml."
+    role_note = "Admins and their permission levels are in serveradmin.xml (the save folder, under Configs)."
+    LINE = re.compile(r"^\d+\.\s*id=\d+,\s*(.*?),\s*pos=.*?\bpltfmid=Steam_(7656\d{13})", re.I)
+
+    def online(self):
+        out = []
+        for line in self.s.rcon("listplayers", timeout=10).splitlines():
+            m = self.LINE.match(line.strip())
+            if m:
+                ping = re.search(r"\bping=(\d+)", line)
+                out.append({"name": m.group(1), "steam_id": m.group(2), "ping": int(ping.group(1)) if ping else None})
+        return out
+
+    def kick(self, steam_id, reason):
+        self.s.rcon(f'kick Steam_{steam_id} "{clean(reason) or "Kicked by an admin"}"', timeout=10)
+
+    def ban(self, steam_id, name, reason):
+        self.s.rcon(f'ban add Steam_{steam_id} 100 years "{clean(reason) or "Banned"}"', timeout=10)
+
+    def unban(self, steam_id):
+        self.s.rcon(f"ban remove Steam_{steam_id}", timeout=10)
+
+
+class Conan(Game):
+    """Conan Exiles over RCON: listplayers is a table - Idx | Char name | Player name | User ID | Platform ID |
+    Platform Name - where a Steam player's Platform ID is their SteamID64. Listing only."""
+    ban_note = "Kicks and bans: the in-game admin panel (or the RCON console under Logs & console)."
+    role_note = "Admins use the server's admin password in game (Settings > Make me admin)."
+
+    def online(self):
+        out = []
+        for line in self.s.rcon("listplayers", timeout=5).splitlines():
+            cols = [c.strip() for c in line.split("|")]
+            if len(cols) >= 5 and cols[0].isdigit():
+                out.append({"name": cols[2] or cols[1] or "?", "steam_id": next((c for c in cols if STEAM_ID.fullmatch(c)), None),
+                            "info": cols[1] or None})
+        return out
+
+
 class Query(Game):
-    ban_note = "This game can't ban from here: an admin bans in-game (Enshrouded's list holds hashed accounts)."
-    role_note = "Roles come with the server's passwords (Enshrouded: the Admin, Friend and Guest group passwords)."
+    ban_note = "This game can't ban from ServerDeck: ban in game, or in the server's own ban list under Configs."
+    role_note = "Admin rights are set in the game or its own files (see Configs)."
 
     def online(self):
         q = self.s.cfg["query"]
@@ -556,7 +703,8 @@ class Query(Game):
 
 
 GAMES = {"scum_log": Scum, "se_remote": SpaceEngineers, "cs2_rcon": CS2, "rust_rcon": Rust,
-         "palworld_rest": Palworld, "a2s": Query}
+         "palworld_rest": Palworld, "a2s": Query, "srcds_rcon": Srcds, "ark_rcon": Ark, "asa_rcon": ArkAscended,
+         "7dtd_telnet": SevenDays, "conan_rcon": Conan}
 
 
 # --------------------------------------------------------------------------
