@@ -935,15 +935,30 @@ class WinProcessServer(Server):
         exe = self.exe()
         pattern = self.cfg.get("process")
         root = Path(self.cfg["install_dir"]).resolve()
+        # The Steam client updates a game while it runs (Farming Simulator): it moves the running exe aside to
+        # <library>\steamapps\temp\<app id>\ and the process keeps running from there.
+        appid = self.cfg.get("steam_client") or self.cfg.get("appid")
+        moved = (root.parent.parent / "temp" / str(appid)).resolve() if appid and root.parent.name.lower() == "common" else None
+        found = []
         for pid in winproc.find_pids(pattern or exe.name):
             # A process that has just exited can linger in the process list
             # (e.g. while another tool still holds a handle to it) - skip those.
             if not winproc.is_alive(pid):
                 continue
             path = winproc.image_path(pid)
-            if path is None or (root in Path(path).resolve().parents if pattern else Path(path).resolve() == exe.resolve()):
-                return pid
-        return None
+            if path is None:
+                found.append(pid)
+                continue
+            path = Path(path).resolve()
+            if (root in path.parents if pattern else path == exe.resolve()) or (moved is not None and moved in path.parents):
+                found.append(pid)
+        if len(found) > 1 and self.cfg.get("ports"):
+            # More than one copy: the one holding the server's ports is the server.
+            owners = winproc.listening_ports()
+            for proto, port in self.cfg["ports"]:
+                if owners.get((proto, int(port))) in found:
+                    return owners[(proto, int(port))]
+        return found[0] if found else None
 
     def refresh(self, ports=None):
         ports = ports if ports is not None else winproc.listening_ports()
