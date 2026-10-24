@@ -44,6 +44,7 @@ import backups  # noqa: E402
 import burden as burdenlib  # noqa: E402
 import chat as chatlib  # noqa: E402
 import community  # noqa: E402
+import fsfarm  # noqa: E402
 import hooks  # noqa: E402
 import palworld  # noqa: E402
 import players as playerslib  # noqa: E402
@@ -352,6 +353,8 @@ class Server:
         self.bad_since = None
         self.good_since = None
         self.empty_since = None        # while an update waits for the server to empty
+        self._farm = None
+        self.farm_down_since = None    # Farming Simulator: web page up, farm not running, since
 
     # ---- restart schedule -----------------------------------------------
     def schedule(self):
@@ -536,6 +539,22 @@ class Server:
         self.step("starting")
         self._start()
 
+    def job_start_farm(self):
+        self.step("starting the farm on its web page")
+        if not self.farm().start():
+            raise RuntimeError("the farm didn't start within 5 minutes - check the game log")
+
+    def farm(self):
+        """Farming Simulator's farm behind its web page (fsfarm.Farm), None for every other server. The page's
+        admin login is the one ServerDeck seeds into dedicatedServer.xml."""
+        if self.cfg.get("template") not in ("fs22", "fs25"):
+            return None
+        if self._farm is None:
+            seed = next((s[1].get("seed", {}) for s in self.cfg.get("pre_start", []) if s[0] == "settings"), {})
+            self._farm = fsfarm.Farm(self.cfg["ports"][0][1], seed.get("webserver/initial_admin/username", "admin"),
+                                     self.mgr.secret(seed.get("webserver/initial_admin/passphrase", "")))
+        return self._farm
+
     def job_stop(self):
         self.step("stopping")
         self._stop()
@@ -638,7 +657,7 @@ class Server:
             if st.get("state") == "crashed":
                 reasons.append(st.get("note") or "crashed")
             if not st.get("online") and (st.get("uptime") or 0) > h.get("startup_grace", 600):
-                reasons.append("running but not answering")
+                reasons.append(st.get("note") or "running but not answering")
             pf = self.perf if st.get("online") else {}
             if pf.get("sim_speed") is not None and pf["sim_speed"] < h.get("min_sim_speed", 0):
                 reasons.append(f"sim speed {pf['sim_speed']:.2f} (should be 1.00)")
@@ -964,12 +983,33 @@ class WinProcessServer(Server):
         ports = ports if ports is not None else winproc.listening_ports()
         st = self._proc_status(self.find_pid(), ports)
         self._query(st)
+        self._farm_status(st)
         st["state"] = "stopped" if not st["running"] else ("running" if st["online"] else "starting")
         self._extras(st, ports)
         self.status = st
 
+    def _farm_status(self, st):
+        """Farming Simulator: its web page answering isn't the farm running - online only while the farm runs."""
+        farm = self.farm()
+        if farm is None or not st.get("online"):
+            self.farm_down_since = None
+            return
+        fs = farm.status()
+        st["farm"] = "running" if fs.get("running") else ("unknown" if "error" in fs else "stopped")
+        st["online"] = bool(fs.get("running"))
+        if st["farm"] == "stopped":
+            self.farm_down_since = self.farm_down_since or time.time()
+            st["note"] = "the web page is up but the farm isn't running" + (
+                " - ServerDeck starts it" if self.keep_online() else " - press Start on its web page")
+        else:
+            self.farm_down_since = None
+            if st["farm"] == "unknown":
+                st["note"] = "can't tell whether the farm is running: " + fs["error"]
+
     def _start(self):
         if self.find_pid():
+            if self.farm() is not None and self.status.get("farm") == "stopped":
+                self.job_start_farm()
             return
         exe = self.exe()
         if not exe.exists():
@@ -998,6 +1038,7 @@ class WinProcessServer(Server):
             self.note(f"launched {exe.name} (pid {pid}{', outside the task job' if detached else ''})")
         launched = time.time()
         deadline = launched + self.cfg.get("start_timeout", 600)
+        farm_started = False
         while time.time() < deadline:
             time.sleep(5)
             self.refresh()
@@ -1008,6 +1049,11 @@ class WinProcessServer(Server):
                 raise RuntimeError("the server process exited during startup - check its log")
             if self.status["online"]:
                 return
+            if self.status.get("farm") == "stopped" and not farm_started:
+                # Farming Simulator: the web page is up - press Start there (unless its autostart already did).
+                farm_started = True
+                self.step("starting the farm on its web page")
+                self.farm().start(wait=0)
         self.mgr.events.add("warn", self.id, "still not answering after the start timeout")
 
     def _ensure_steam(self):
@@ -1321,6 +1367,22 @@ class Manager:
         return self.admin
 
     def _keep_alive(self, s):
+        if s.farm_down_since and s.keep_online() and not s.busy() and self.can_control(s) \
+                and time.time() - s.farm_down_since > 180:
+            # Farming Simulator's web page is up but its farm has been stopped for 3 minutes (long enough for
+            # someone changing mods on the page to start it again themselves).
+            now = time.time()
+            if s.held_until > now:
+                return
+            if len([t for t in s.autostarts if now - t < 1800]) >= 4:
+                s.held_until = now + 1800
+                self.events.add("error", s.id, "the farm keeps stopping: 4 starts in 30 min - auto-start paused for 30 min")
+                return
+            s.autostarts.append(now)
+            s.farm_down_since = None
+            self.events.add("warn", s.id, "the farm isn't running but should be online - starting it")
+            s.run_job("start farm", s.job_start_farm)
+            return
         if not s.keep_online() or s.busy() or s.is_running() or s.status.get("state") == "unknown":
             return
         if not self.can_control(s) or not s.is_installed() or s.waiting():

@@ -76,7 +76,10 @@ install it).
      has your Steam client download it (it must be on the Steam account signed in on this PC), the card shows
      Steam's progress, and ServerDeck then runs it on your desktop next to Steam (Windows has to be logged on;
      ServerDeck registers a "ServerDeck desktop helper" scheduled task for that). Hosting counts as playing it
-     on that account. A Giants copy: install it yourself and point the server's folder at it;
+     on that account. A Giants copy: install it yourself and point the server's folder at it. Its
+     dedicatedServer.exe is only the web page: ServerDeck logs on to that page to press the farm's Start
+     after starting it, shows the server online only while the farm runs, and (kept online) starts a farm
+     that has been stopped on the page for 3 minutes;
    - press **Configs** on the card for its config files.
 
 Space Engineers needs no configurator: its first start copies one of the scenarios that come with it (Star
