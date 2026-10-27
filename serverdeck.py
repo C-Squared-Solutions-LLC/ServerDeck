@@ -807,15 +807,20 @@ class Server:
 
     def _proc_status(self, pid, ports):
         st = {"pid": pid, "running": bool(pid)}
+        # "tree": the exe is a runner that keeps the game going as its child (SE2 Online) - the child holds the
+        # ports and the memory, so the whole tree counts.
+        tree = winproc.descendants(pid) if pid and self.cfg.get("tree") else [pid]
         if pid:
             ps = winproc.process_stats(pid)
             if ps:
-                created, cpu, private, ws = ps
+                created = ps[0]
+                stats = [s for s in (ps, *map(winproc.process_stats, tree[1:])) if s]
+                cpu, private, ws = (sum(s[i] for s in stats) for i in (1, 2, 3))
                 st["uptime"] = max(0, time.time() - created)
                 st["cpu"] = self.cpu.percent(pid, cpu)
                 st["mem"] = private        # reserved: committed memory (RAM + page file), Task Manager's "commit size"
                 st["mem_ws"] = ws          # in use: physical RAM it occupies right now (working set)
-        st["ports"] = [{"proto": p, "port": n, "up": ports.get((p, n)) == pid if pid else False}
+        st["ports"] = [{"proto": p, "port": n, "up": ports.get((p, n)) in tree if pid else False}
                        for p, n in self.cfg.get("ports", [])]
         return st
 
@@ -1105,7 +1110,7 @@ class WinProcessServer(Server):
             self.mgr.events.add("warn", self.id, "no clean exit - terminating")
         # SCUMServer.exe has no console and no windows: terminating is the only
         # way (and what the old 6-hourly kill did); it writes its DB continuously.
-        if self.on_desktop():
+        if self.on_desktop() or self.cfg.get("tree"):
             winproc.kill_tree(pid)                # Farming Simulator: the game it started for the farm too
         else:
             winproc.terminate(pid)

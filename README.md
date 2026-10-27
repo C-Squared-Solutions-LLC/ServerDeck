@@ -8,8 +8,8 @@ Built-in templates (28):
 - **Survival / crafting** - 7 Days to Die, ARK: Survival Ascended, ATLAS, Conan Exiles (Enhanced), Empyrion,
   Enshrouded, ICARUS, Myth of Empires, Palworld, Rust (Oxide), SCUM, Sons of the Forest, Sunkenland, The Front,
   Valheim
-- **Sandbox / sim** - Space Engineers, Farming Simulator 22, Farming Simulator 25 (the server comes with the
-  game and needs its own licence)
+- **Sandbox / sim** - Space Engineers, Space Engineers 2 (the community SE2 Online server), Farming Simulator 22,
+  Farming Simulator 25 (the server comes with the game and needs its own licence)
 - **Shooters** - Counter-Strike 2 (Metamod + CounterStrikeSharp), Counter-Strike: Source, Team Fortress 2,
   Garry's Mod, Day of Defeat: Source, Half-Life 2: Deathmatch, Half-Life Deathmatch: Source,
   Natural Selection 2, Serious Sam 3: BFE, Serious Sam Fusion 2017
@@ -87,6 +87,13 @@ System, Earth Planet, Empty World, ...) into the instance folder as a new world 
 `SpaceEngineers-Dedicated.cfg` - name, ports, player cap and the Remote API (random key) ServerDeck uses. It runs
 in console mode as a plain process and stops with Ctrl+C, which saves the world. (A server set up earlier as the
 configurator's Windows service still works as one: type `win_service`.)
+
+Space Engineers 2 has no official dedicated server yet; the template runs SE2 Online (Yellow51), a community server
+that runs the game headless. Unzip its standalone package (game files included) into the install folder - nothing
+is downloaded through Steam. Its exe is a runner that keeps the game going as a child process, so ServerDeck counts
+the whole process tree (`"tree": true`: ports, CPU and memory; a forced stop ends the tree). The first start writes
+`server.json` from `server.example.json` (name, world, slots), and every start keeps its RCON on, on 127.0.0.1
+only, for chat warnings and `stop now`, which saves the world.
 
 ATLAS needs no ServerGridEditor: the server files come without a `ServerGrid.json`, so its first start makes a
 1x1 grid from Grapeshot's own sample (home cell 0,0) with this PC's public address, your ports and the Redis

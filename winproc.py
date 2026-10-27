@@ -206,9 +206,8 @@ def terminate(pid, code=1):
         k32.CloseHandle(h)
 
 
-def kill_tree(pid):
-    """Terminate a process and its descendants (e.g. a venv's python.exe is a
-    launcher that runs the real interpreter as a child)."""
+def descendants(pid):
+    """pid and every process below it, parents before children."""
     root = process_stats(pid)
     children = {}
     for p, ppid, _ in list_processes():
@@ -222,6 +221,13 @@ def kill_tree(pid):
             # Guard against PID reuse: a real child can't predate its parent.
             if c not in order and (root is None or cs is None or cs[0] >= root[0] - 1):
                 stack.append(c)
+    return order
+
+
+def kill_tree(pid):
+    """Terminate a process and its descendants (e.g. a venv's python.exe is a
+    launcher that runs the real interpreter as a child)."""
+    order = descendants(pid)
     for p in reversed(order):
         terminate(p)
     for p in order:
