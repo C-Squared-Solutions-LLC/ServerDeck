@@ -349,9 +349,19 @@ class ScumFeed:
                 except (OSError, ValueError):
                     pass
             self.quests, self.quests_at = index, time.time()
-        key = Path(quest.replace("\\", "/")).stem.lower() if ("/" in quest or quest.endswith(".json")) else quest.lower()
+        # Custom quests are logged as '[Z3]_Banker_Fetch_T1_WL_BK_T1_Records_Office.json' - the outpost must never
+        # reach the feed (it tells everyone which trader to camp), so only the file stem after it is used.
+        quest = re.sub(r"^\[[^\]]*\]_", "", quest.strip())
+        if quest.endswith(".json"):
+            quest = Path(quest.replace("\\", "/")).stem
+            m = re.search(r"WL_[A-Z]{2}_T\d_.+", quest)
+            quest = m.group(0) if m else quest
+        key = quest.lower()
         if key in self.quests:
             return self.quests[key]
+        m = re.match(r"WL_([A-Z]{2})_T(\d)_(.+)", quest)
+        if m:
+            return m.group(3).replace("_", " "), NPC_CODES.get(m.group(1), m.group(1)), int(m.group(2))
         m = re.match(r"T(\d)_([A-Z]{2})_(.+)", quest)
         if m:
             return m.group(3).replace("_", " "), NPC_CODES.get(m.group(2), m.group(2)), int(m.group(1))
