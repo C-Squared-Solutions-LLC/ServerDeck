@@ -269,7 +269,8 @@ def who_key(who):
     s = who.strip().strip("'")
     sid = re.search(r"\d{17}", s)
     name = re.sub(r"^.*?\d{17}:", "", s)                  # "1.2.3.4 7656...:Name(1)"
-    name = re.sub(r"\((?:\d{17}|\d{1,6})\)\s*$", "", name).strip() or s
+    # "Name(1)", "Name(7656...)" and the quest log's "Name (88, 7656...)"
+    name = re.sub(r"\s*\(\s*\d{1,17}(?:\s*,\s*\d{1,17})*\s*\)\s*$", "", name).strip() or s
     return (sid.group(0) if sid else name.lower()), name
 
 
